@@ -148,45 +148,100 @@ async def upload_audio(
     )
 
 
-@router.post("/transcribe", response_model=TranscriptionResult)
-async def transcribe_audio(request: TranscriptionRequest):
-    """
-    Transcribe uploaded audio file
+# Global ASR model instance (lazy loading)
+from app.models.asr import ASRModel
 
-    Phase 1: Returns dummy transcription with Korean text
+asr_model = ASRModel(model_name="medium")
+
+
+@router.post("/transcribe", response_model=TranscriptionResult)
+async def transcribe_audio(
+    request: TranscriptionRequest,
+    db: AsyncSession = Depends(get_db),
+):
     """
-    # Phase 1: Dummy Korean transcription
-    dummy_segments = [
+    Transcribe uploaded audio file using MLX Whisper
+
+    Phase 3: 실제 음성 인식 수행
+    """
+    # 1. 오디오 파일 조회
+    result = await db.execute(
+        select(AudioFile).where(AudioFile.id == request.file_id)
+    )
+    audio_file = result.scalar_one_or_none()
+
+    if not audio_file:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Audio file not found: {request.file_id}"
+        )
+
+    # 2. ASR 모델로 전사 수행
+    try:
+        asr_result = await asr_model.transcribe(
+            audio_path=audio_file.original_path,
+            language=request.language,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Transcription failed: {str(e)}"
+        )
+
+    # 3. 데이터베이스에 저장
+    from app.db.models import Transcript, TranscriptSegment as DBTranscriptSegment
+
+    transcript = Transcript(
+        id=str(uuid.uuid4()),
+        audio_file_id=audio_file.id,
+        model_name="mlx-whisper",
+        model_version=asr_model.model_name,
+        language=request.language,
+        diarization_enabled=request.enable_diarization,
+        enhancement_enabled=request.enable_enhancement,
+        processing_time=asr_result.processing_time,
+        created_at=datetime.now(),
+    )
+    db.add(transcript)
+
+    # 세그먼트 저장
+    for idx, seg in enumerate(asr_result.segments):
+        db_segment = DBTranscriptSegment(
+            id=str(uuid.uuid4()),
+            transcript_id=transcript.id,
+            start_time=seg.start,
+            end_time=seg.end,
+            original_text=seg.text,
+            confidence=seg.confidence,
+            speaker=None,  # Diarization Phase 4에서 구현
+            edited_text=None,
+            is_edited=False,
+            segment_index=idx,
+        )
+        db.add(db_segment)
+
+    await db.commit()
+    await db.refresh(transcript)
+
+    # 4. 응답 반환
+    response_segments = [
         TranscriptionSegment(
-            start=0.0,
-            end=3.5,
-            text="안녕하세요 이것은 테스트 음성입니다",
-            speaker="SPEAKER_00",
-            confidence=0.92,
-        ),
-        TranscriptionSegment(
-            start=3.5,
-            end=7.2,
-            text="음성 인식 시스템이 정상적으로 작동하고 있습니다",
-            speaker="SPEAKER_00",
-            confidence=0.88,
-        ),
-        TranscriptionSegment(
-            start=8.0,
-            end=11.5,
-            text="저음질 환경에서도 견고한 인식을 목표로 합니다",
-            speaker="SPEAKER_01",
-            confidence=0.75,
-        ),
+            start=seg.start,
+            end=seg.end,
+            text=seg.text,
+            speaker=None,
+            confidence=seg.confidence,
+        )
+        for seg in asr_result.segments
     ]
 
     return TranscriptionResult(
-        file_id=request.file_id,
-        segments=dummy_segments,
-        language=request.language,
-        processing_time=2.35,
-        model_version="dummy-v0.1.0",
-        created_at=datetime.now(),
+        file_id=audio_file.id,
+        segments=response_segments,
+        language=asr_result.language,
+        processing_time=asr_result.processing_time,
+        model_version=f"mlx-whisper-{asr_model.model_name}",
+        created_at=transcript.created_at,
     )
 
 
