@@ -21,6 +21,8 @@ mlx-whisper = "^0.4.3"
 silero-vad = "^6.2.3"
 torchaudio = "^2.11.1"
 python-dotenv = "^1.2.4"
+librosa = ">=0.10.0,<1.0.0"
+matplotlib = ">=3.7.0,<4.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.0"

@@ -22,6 +22,8 @@ from app.schemas.audio import (
     TranscriptionSegment,
     VADAnalysis,
     AudioQualityMetrics,
+    SignalAnalysis,
+    FrequencyAnalysis,
 )
 from app.utils.audio import extract_metadata_ffmpeg, validate_audio_file
 from app.core.config import settings
@@ -153,9 +155,11 @@ async def upload_audio(
 # Global model instances (lazy loading)
 from app.models.asr import ASRModel
 from app.models.vad import VADModel
+from app.models.audio_analysis import AudioAnalysisModel
 
 asr_model = ASRModel(model_name="medium")
 vad_model = VADModel()
+audio_analysis_model = AudioAnalysisModel()
 
 
 @router.post("/transcribe", response_model=TranscriptionResult)
@@ -180,7 +184,40 @@ async def transcribe_audio(
             detail=f"Audio file not found: {request.file_id}"
         )
 
-    # 2. VAD 전처리 (옵션)
+    # 2. 오디오 신호 분석 (원본 파일)
+    signal_analysis_result = None
+    try:
+        print(f"🔬 Analyzing audio signal quality...")
+        analysis_result = await audio_analysis_model.analyze(
+            audio_path=audio_file.original_path,
+            generate_spectrogram=True,
+        )
+
+        # 스키마로 변환
+        signal_analysis_result = SignalAnalysis(
+            snr_db=analysis_result.snr_db,
+            frequency_analysis=FrequencyAnalysis(
+                low_freq_energy=analysis_result.frequency_analysis.low_freq_energy,
+                mid_freq_energy=analysis_result.frequency_analysis.mid_freq_energy,
+                high_freq_energy=analysis_result.frequency_analysis.high_freq_energy,
+                spectral_centroid=analysis_result.frequency_analysis.spectral_centroid,
+                spectral_rolloff=analysis_result.frequency_analysis.spectral_rolloff,
+                spectral_bandwidth=analysis_result.frequency_analysis.spectral_bandwidth,
+            ) if analysis_result.frequency_analysis else None,
+            clipping_detected=analysis_result.clipping_detected,
+            clipping_percentage=analysis_result.clipping_percentage,
+            rms_energy=analysis_result.rms_energy,
+            zero_crossing_rate=analysis_result.zero_crossing_rate,
+            spectrogram_base64=analysis_result.spectrogram_base64,
+            quality_score=analysis_result.quality_score,
+            quality_issues=analysis_result.quality_issues,
+        )
+        print(f"✅ Signal analysis complete: Quality score = {analysis_result.quality_score:.1f}/100")
+    except Exception as e:
+        print(f"⚠️  Signal analysis failed: {e}")
+        # 분석 실패해도 전사는 계속 진행
+
+    # 3. VAD 전처리 (옵션)
     audio_path_for_asr = audio_file.original_path
     vad_result = None
 
@@ -199,7 +236,7 @@ async def transcribe_audio(
             print(f"⚠️  VAD failed, using original audio: {e}")
             # VAD 실패 시 원본 사용
 
-    # 3. ASR 모델로 전사 수행
+    # 4. ASR 모델로 전사 수행
     try:
         asr_result = await asr_model.transcribe(
             audio_path=audio_path_for_asr,
@@ -291,6 +328,7 @@ async def transcribe_audio(
         created_at=transcript.created_at,
         vad_analysis=vad_analysis,
         audio_quality=audio_quality,
+        signal_analysis=signal_analysis_result,
         rtf=rtf,
     )
 
