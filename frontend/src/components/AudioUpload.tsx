@@ -1,23 +1,53 @@
 /**
  * Audio Upload Component
- * Drag & drop or file picker for audio uploads
+ * Drag & drop or file picker for audio uploads + transcription
  */
 
 import { useState } from 'react'
 import { api } from '../services/api'
-import type { AudioUploadResponse } from '../types'
+import type { AudioUploadResponse, TranscriptionResult } from '../types'
 
 interface AudioUploadProps {
   onUploadComplete?: (result: AudioUploadResponse) => void
+  onTranscriptionComplete?: (result: TranscriptionResult) => void
 }
 
-export function AudioUpload({ onUploadComplete }: AudioUploadProps) {
+export function AudioUpload({ onUploadComplete, onTranscriptionComplete }: AudioUploadProps) {
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [result, setResult] = useState<AudioUploadResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+
+  // Transcription state
+  const [transcribing, setTranscribing] = useState(false)
+  const [transcription, setTranscription] = useState<TranscriptionResult | null>(null)
+
+  const handleTranscribe = async () => {
+    if (!result?.file_id) return
+
+    setTranscribing(true)
+    setError(null)
+
+    try {
+      const transcriptionResult = await api.transcribeAudio(result.file_id, {
+        language: 'ko',
+        enable_diarization: false,
+        enable_enhancement: false,
+      })
+
+      setTranscription(transcriptionResult)
+
+      if (onTranscriptionComplete) {
+        onTranscriptionComplete(transcriptionResult)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '전사 실패')
+    } finally {
+      setTranscribing(false)
+    }
+  }
 
   const handleFileSelect = (selectedFile: File | null) => {
     if (!selectedFile) return
@@ -195,15 +225,76 @@ export function AudioUpload({ onUploadComplete }: AudioUploadProps) {
           </div>
 
           <button
-            className="upload-btn"
+            className="transcribe-btn"
+            onClick={handleTranscribe}
+            disabled={transcribing}
+          >
+            {transcribing ? '전사 중...' : '🎤 음성 인식 시작'}
+          </button>
+
+          <button
+            className="upload-btn secondary"
             onClick={() => {
               setFile(null)
               setResult(null)
               setProgress(0)
+              setTranscription(null)
             }}
           >
             새 파일 업로드
           </button>
+        </div>
+      )}
+
+      {/* Transcription progress */}
+      {transcribing && (
+        <div className="transcription-progress">
+          <div className="progress-spinner"></div>
+          <p>음성을 텍스트로 변환 중입니다...</p>
+          <p className="progress-hint">첫 실행 시 모델 다운로드로 인해 시간이 걸릴 수 있습니다.</p>
+        </div>
+      )}
+
+      {/* Transcription result */}
+      {transcription && (
+        <div className="transcription-result">
+          <div className="result-header">🎯 전사 완료!</div>
+
+          <div className="transcription-meta">
+            <div className="meta-item">
+              <span className="meta-label">언어:</span>
+              <span className="meta-value">{transcription.language === 'ko' ? '한국어' : transcription.language}</span>
+            </div>
+            <div className="meta-item">
+              <span className="meta-label">처리 시간:</span>
+              <span className="meta-value">{transcription.processing_time.toFixed(2)}초</span>
+            </div>
+            <div className="meta-item">
+              <span className="meta-label">모델:</span>
+              <span className="meta-value">{transcription.model_version}</span>
+            </div>
+            <div className="meta-item">
+              <span className="meta-label">세그먼트:</span>
+              <span className="meta-value">{transcription.segments.length}개</span>
+            </div>
+          </div>
+
+          <div className="segments-container">
+            <h3>전사 결과</h3>
+            {transcription.segments.map((segment, idx) => (
+              <div key={idx} className="segment">
+                <div className="segment-time">
+                  {formatDuration(segment.start)} - {formatDuration(segment.end)}
+                </div>
+                <div className="segment-text">{segment.text}</div>
+                {segment.confidence !== null && segment.confidence !== undefined && (
+                  <div className="segment-confidence">
+                    신뢰도: {(segment.confidence * 100).toFixed(1)}%
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
