@@ -148,10 +148,12 @@ async def upload_audio(
     )
 
 
-# Global ASR model instance (lazy loading)
+# Global model instances (lazy loading)
 from app.models.asr import ASRModel
+from app.models.vad import VADModel
 
 asr_model = ASRModel(model_name="medium")
+vad_model = VADModel()
 
 
 @router.post("/transcribe", response_model=TranscriptionResult)
@@ -176,10 +178,29 @@ async def transcribe_audio(
             detail=f"Audio file not found: {request.file_id}"
         )
 
-    # 2. ASR 모델로 전사 수행
+    # 2. VAD 전처리 (옵션)
+    audio_path_for_asr = audio_file.original_path
+    vad_result = None
+
+    if request.enable_vad:
+        try:
+            print(f"🎙️  Applying VAD preprocessing...")
+            vad_result = await vad_model.process_audio(
+                audio_path=audio_file.original_path,
+                output_path=None,  # 자동 생성 (_vad suffix)
+            )
+            # VAD 처리된 파일 사용
+            audio_path_for_asr = str(Path(audio_file.original_path).parent /
+                                    f"{Path(audio_file.original_path).stem}_vad{Path(audio_file.original_path).suffix}")
+            print(f"✅ VAD complete: {vad_result.silence_removed:.2f}s silence removed")
+        except Exception as e:
+            print(f"⚠️  VAD failed, using original audio: {e}")
+            # VAD 실패 시 원본 사용
+
+    # 3. ASR 모델로 전사 수행
     try:
         asr_result = await asr_model.transcribe(
-            audio_path=audio_file.original_path,
+            audio_path=audio_path_for_asr,
             language=request.language,
         )
     except Exception as e:

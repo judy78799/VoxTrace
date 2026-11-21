@@ -2499,6 +2499,30 @@ test = ["build[virtualenv] (>=1.0.3)", "filelock (>=3.4.0)", "ini2toml[lite] (>=
 type = ["importlib_metadata (>=7.0.2) ; python_version < \"3.10\"", "jaraco.develop (>=7.21) ; sys_platform != \"cygwin\"", "mypy (==1.18.*)", "pytest-mypy (>=1.0.1) ; platform_python_implementation != \"PyPy\""]
 
 [[package]]
+name = "silero-vad"
+version = "6.2.3"
+description = "Voice Activity Detector (VAD) by Silero"
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "silero_vad-6.2.3-py3-none-any.whl", hash = "sha256:7b7f5436cfcb02fae583a05b512ea96467fd449fe54cb49a5e4f06c51a1e43b8"},
+    {file = "silero_vad-6.2.3.tar.gz", hash = "sha256:d7a23b09202be4953915cb9173089bb307eed0418a9bd4794d9ec5af07fa1996"},
+]
+
+[package.dependencies]
+packaging = "*"
+torch = ">=1.12.0"
+
+[package.extras]
+all = ["numpy", "onnxruntime (>=1.16.1)", "torchaudio (>=0.12.0,<2.10)", "torchcodec ; python_version >= \"3.9\""]
+audio = ["torchaudio (>=0.12.0,<2.10)", "torchcodec ; python_version >= \"3.9\""]
+codec = ["torchcodec ; python_version >= \"3.9\""]
+onnx-cpu = ["numpy", "onnxruntime (>=1.16.1)"]
+onnx-gpu = ["numpy", "onnxruntime-gpu (>=1.16.1)"]
+test = ["pytest", "soundfile", "torch (<2.9)", "torchaudio (>=0.12.0,<2.10)", "torchcodec ; python_version >= \"3.9\""]
+
+[[package]]
 name = "sqlalchemy"
 version = "2.1.8"
 description = "Database Abstraction Library"
@@ -3202,4 +3226,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "a80c0f3afd311d7d0a2768acfec8b5280212ddc76eabd43fa9d550f6b332eca6"
+content-hash = "c34650312f757dca3232877cccfb5994873ab6793cb609b24189c78934eb323b"

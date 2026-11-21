@@ -27,6 +27,7 @@ class TranscriptionRequest(BaseModel):
     """Request to transcribe audio"""
 
     file_id: str
+    enable_vad: bool = True  # Voice Activity Detection (무음 제거)
     enable_diarization: bool = True
     enable_enhancement: bool = False
     language: str = "ko"

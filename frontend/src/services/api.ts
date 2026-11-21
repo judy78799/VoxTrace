@@ -34,6 +34,7 @@ export const api = {
   async transcribeAudio(
     fileId: string,
     options: {
+      enable_vad?: boolean
       enable_diarization?: boolean
       enable_enhancement?: boolean
       language?: string
@@ -44,6 +45,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         file_id: fileId,
+        enable_vad: options.enable_vad ?? true,
         enable_diarization: options.enable_diarization ?? true,
         enable_enhancement: options.enable_enhancement ?? false,
         language: options.language ?? 'ko',

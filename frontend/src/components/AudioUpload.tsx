@@ -33,6 +33,7 @@ export function AudioUpload({ onUploadComplete, onTranscriptionComplete }: Audio
     try {
       const transcriptionResult = await api.transcribeAudio(result.file_id, {
         language: 'ko',
+        enable_vad: true,  // VAD enabled by default
         enable_diarization: false,
         enable_enhancement: false,
       })
@@ -208,7 +209,7 @@ export function AudioUpload({ onUploadComplete, onTranscriptionComplete }: Audio
             </div>
             <div className="result-row">
               <span className="result-label">길이:</span>
-              <span className="result-value">{formatDuration(result.duration)}</span>
+              <span className="result-value">{formatDuration(result.duration ?? 0)}</span>
             </div>
             <div className="result-row">
               <span className="result-label">샘플레이트:</span>
