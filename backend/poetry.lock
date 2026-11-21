@@ -2812,6 +2812,23 @@ optree = ["optree (>=0.13.0)"]
 pyyaml = ["pyyaml"]
 
 [[package]]
+name = "torchaudio"
+version = "2.11.1"
+description = "An audio package for PyTorch"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "torchaudio-2.11.1-py3-none-macosx_14_0_arm64.whl", hash = "sha256:917667ab3e357d286b0e2405a33dc538e4344d554b72e1b2b03382a4352ca857"},
+    {file = "torchaudio-2.11.1-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:ad1175202b5cdb7585a38c1330845430e128c4ed8ceb770639318aa40fc1994b"},
+    {file = "torchaudio-2.11.1-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:0173b5b51e1368aa88de3cbe4e98508b5e9df4d8d59356c4e1fbc830c96191ef"},
+    {file = "torchaudio-2.11.1-py3-none-win_amd64.whl", hash = "sha256:46ea71634d181f797370f046075ea982043c228b38d674fd7d9fc1c855a37b6a"},
+]
+
+[package.dependencies]
+torch = ">=2.11"
+
+[[package]]
 name = "tqdm"
 version = "4.70.1"
 description = "Fast, Extensible Progress Meter"
@@ -3226,4 +3243,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "c34650312f757dca3232877cccfb5994873ab6793cb609b24189c78934eb323b"
+content-hash = "da970472120cdbf7c6af4f04ed9a9cd2c49392f8da4e2ec8e218a80dd89c6fe2"
