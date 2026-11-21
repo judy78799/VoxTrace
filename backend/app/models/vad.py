@@ -6,6 +6,8 @@ Silero VAD를 사용하여 오디오에서 음성 구간만 추출
 """
 
 import time
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Optional, List
 from dataclasses import dataclass
@@ -109,8 +111,30 @@ class VADModel(BaseModel):
         print(f"{'='*60}\n")
 
         try:
-            # 오디오 파일 로드
-            wav, sr = torchaudio.load(audio_path)
+            # 오디오 파일 로드 (m4a 등 비호환 포맷은 ffmpeg로 변환)
+            temp_wav_path = None
+            try:
+                wav, sr = torchaudio.load(audio_path)
+            except Exception as e:
+                print(f"⚠️  Direct load failed: {e}")
+                print(f"🔄 Converting to WAV using ffmpeg...")
+
+                # 임시 WAV 파일 생성
+                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+                    temp_wav_path = tmp.name
+
+                # ffmpeg로 변환
+                subprocess.run([
+                    'ffmpeg', '-i', audio_path,
+                    '-ar', '16000',  # 16kHz로 변환
+                    '-ac', '1',       # 모노로 변환
+                    '-y',             # 덮어쓰기
+                    temp_wav_path
+                ], check=True, capture_output=True)
+
+                # 변환된 파일 로드
+                wav, sr = torchaudio.load(temp_wav_path)
+                print(f"✅ Converted to WAV successfully")
 
             # 모노 변환
             if wav.shape[0] > 1:
@@ -197,6 +221,11 @@ class VADModel(BaseModel):
             processing_time = time.time() - start_time
             print(f"❌ VAD processing failed: {e}")
             raise
+        finally:
+            # 임시 파일 정리
+            if temp_wav_path and Path(temp_wav_path).exists():
+                Path(temp_wav_path).unlink()
+                print(f"🗑️  Cleaned up temporary WAV file")
 
     def get_info(self) -> ModelInfo:
         """모델 정보 반환"""
