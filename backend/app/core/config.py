@@ -4,6 +4,7 @@ Application Configuration
 Environment-based settings for VoxTrace backend
 """
 
+from typing import Optional
 from pydantic_settings import BaseSettings
 
 
@@ -24,6 +25,9 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "./data/uploads"
     PROCESSED_DIR: str = "./data/processed"
     MAX_UPLOAD_SIZE: int = 500 * 1024 * 1024  # 500MB
+
+    # External API Keys
+    MOZILLA_API_KEY: Optional[str] = None
 
     # Model Settings (Phase 1: Not loaded)
     MODEL_DIR: str = "./models"
