@@ -107,6 +107,16 @@ class ASRModel(BaseModel):
 
         start_time = time.time()
 
+        # 디버그 로깅
+        print(f"\n{'='*60}")
+        print(f"🎤 ASR Transcription Started")
+        print(f"{'='*60}")
+        print(f"📁 Audio Path: {audio_path}")
+        print(f"🌐 Language: {language}")
+        print(f"📦 Model: {self.hf_repo}")
+        print(f"🎯 Task: {task}")
+        print(f"{'='*60}\n")
+
         try:
             # MLX Whisper 전사 수행
             result = mlx_whisper.transcribe(
@@ -117,6 +127,22 @@ class ASRModel(BaseModel):
                 word_timestamps=False,  # 단어별 타임스탬프 (옵션)
                 verbose=False,
             )
+
+            # 전사 결과 로깅
+            print(f"\n{'='*60}")
+            print(f"✅ ASR Transcription Completed")
+            print(f"{'='*60}")
+            print(f"🌐 Detected Language: {result.get('language', 'unknown')}")
+            print(f"📝 Segments Count: {len(result.get('segments', []))}")
+            print(f"⏱️  Processing Time: {time.time() - start_time:.2f}s")
+
+            # 첫 3개 세그먼트 미리보기
+            if result.get('segments'):
+                print(f"\n📄 First 3 Segments Preview:")
+                for i, seg in enumerate(result['segments'][:3]):
+                    print(f"  [{i+1}] {seg['start']:.2f}s - {seg['end']:.2f}s: {seg['text'][:50]}...")
+
+            print(f"{'='*60}\n")
 
             # ASRSegment로 변환
             segments = []

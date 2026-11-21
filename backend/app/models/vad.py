@@ -98,6 +98,16 @@ class VADModel(BaseModel):
 
         start_time = time.time()
 
+        # 디버그 로깅
+        print(f"\n{'='*60}")
+        print(f"🎙️  VAD Processing Started")
+        print(f"{'='*60}")
+        print(f"📁 Audio Path: {audio_path}")
+        print(f"🎚️  Threshold: {threshold}")
+        print(f"⏱️  Min Speech Duration: {min_speech_duration_ms}ms")
+        print(f"🔇 Min Silence Duration: {min_silence_duration_ms}ms")
+        print(f"{'='*60}\n")
+
         try:
             # 오디오 파일 로드
             wav, sr = torchaudio.load(audio_path)
@@ -157,12 +167,23 @@ class VADModel(BaseModel):
             silence_removed = original_duration - processed_duration
             processing_time = time.time() - start_time
 
-            print(f"✅ VAD processing complete:")
-            print(f"   Original: {original_duration:.2f}s")
-            print(f"   Processed: {processed_duration:.2f}s")
-            print(f"   Silence removed: {silence_removed:.2f}s ({silence_removed/original_duration*100:.1f}%)")
-            print(f"   Speech segments: {len(segments)}")
-            print(f"   Processing time: {processing_time:.2f}s")
+            # 상세 로깅
+            print(f"\n{'='*60}")
+            print(f"✅ VAD Processing Completed")
+            print(f"{'='*60}")
+            print(f"📊 Audio Statistics:")
+            print(f"   Original Duration: {original_duration:.2f}s")
+            print(f"   Processed Duration: {processed_duration:.2f}s")
+            print(f"   Silence Removed: {silence_removed:.2f}s ({silence_removed/original_duration*100:.1f}%)")
+            print(f"   Speech Segments: {len(segments)}")
+            print(f"   Processing Time: {processing_time:.2f}s")
+
+            if segments:
+                print(f"\n🎤 Speech Segments Preview (first 5):")
+                for i, seg in enumerate(segments[:5]):
+                    print(f"   [{i+1}] {seg.start:.2f}s - {seg.end:.2f}s (duration: {seg.end - seg.start:.2f}s)")
+
+            print(f"{'='*60}\n")
 
             return VADResult(
                 segments=segments,
