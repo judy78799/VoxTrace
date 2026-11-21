@@ -20,6 +20,8 @@ from app.schemas.audio import (
     TranscriptionRequest,
     TranscriptionResult,
     TranscriptionSegment,
+    VADAnalysis,
+    AudioQualityMetrics,
 )
 from app.utils.audio import extract_metadata_ffmpeg, validate_audio_file
 from app.core.config import settings
@@ -256,6 +258,30 @@ async def transcribe_audio(
         for seg in asr_result.segments
     ]
 
+    # VAD 분석 정보
+    vad_analysis = None
+    if vad_result:
+        vad_analysis = VADAnalysis(
+            enabled=True,
+            original_duration=vad_result.original_duration,
+            processed_duration=vad_result.processed_duration,
+            silence_removed=vad_result.silence_removed,
+            speech_segments_count=len(vad_result.segments),
+        )
+    else:
+        vad_analysis = VADAnalysis(enabled=False)
+
+    # 오디오 품질 지표
+    audio_quality = AudioQualityMetrics(
+        sample_rate=audio_file.sample_rate or 0,
+        channels=audio_file.channels or 0,
+        duration=audio_file.duration or 0.0,
+        file_size_mb=audio_file.size_bytes / 1024 / 1024,
+    )
+
+    # RTF (Real-Time Factor) 계산
+    rtf = asr_result.processing_time / audio_file.duration if audio_file.duration else None
+
     return TranscriptionResult(
         file_id=audio_file.id,
         segments=response_segments,
@@ -263,6 +289,9 @@ async def transcribe_audio(
         processing_time=asr_result.processing_time,
         model_version=f"mlx-whisper-{asr_model.model_name}",
         created_at=transcript.created_at,
+        vad_analysis=vad_analysis,
+        audio_quality=audio_quality,
+        rtf=rtf,
     )
 
 

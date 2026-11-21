@@ -22,6 +22,21 @@ export interface TranscriptionSegment {
   confidence?: number
 }
 
+export interface VADAnalysis {
+  enabled: boolean
+  original_duration?: number
+  processed_duration?: number
+  silence_removed?: number
+  speech_segments_count?: number
+}
+
+export interface AudioQualityMetrics {
+  sample_rate: number
+  channels: number
+  duration: number
+  file_size_mb: number
+}
+
 export interface TranscriptionResult {
   file_id: string
   segments: TranscriptionSegment[]
@@ -29,6 +44,9 @@ export interface TranscriptionResult {
   processing_time: number
   model_version: string
   created_at: string
+  vad_analysis?: VADAnalysis
+  audio_quality?: AudioQualityMetrics
+  rtf?: number  // Real-Time Factor
 }
 
 export interface ProjectResponse {

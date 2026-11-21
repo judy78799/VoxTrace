@@ -261,27 +261,145 @@ export function AudioUpload({ onUploadComplete, onTranscriptionComplete }: Audio
         <div className="transcription-result">
           <div className="result-header">🎯 전사 완료!</div>
 
-          <div className="transcription-meta">
-            <div className="meta-item">
-              <span className="meta-label">언어:</span>
-              <span className="meta-value">{transcription.language === 'ko' ? '한국어' : transcription.language}</span>
-            </div>
-            <div className="meta-item">
-              <span className="meta-label">처리 시간:</span>
-              <span className="meta-value">{transcription.processing_time.toFixed(2)}초</span>
-            </div>
-            <div className="meta-item">
-              <span className="meta-label">모델:</span>
-              <span className="meta-value">{transcription.model_version}</span>
-            </div>
-            <div className="meta-item">
-              <span className="meta-label">세그먼트:</span>
-              <span className="meta-value">{transcription.segments.length}개</span>
+          {/* Analysis Section */}
+          <div className="analysis-section">
+            <h3>📊 분석 정보</h3>
+
+            {/* Performance Metrics */}
+            <div className="analysis-grid">
+              <div className="analysis-card">
+                <div className="card-header">⚡ 성능 지표</div>
+                <div className="card-content">
+                  <div className="metric-row">
+                    <span className="metric-label">처리 시간:</span>
+                    <span className="metric-value">{transcription.processing_time.toFixed(2)}초</span>
+                  </div>
+                  {transcription.rtf && (
+                    <div className="metric-row">
+                      <span className="metric-label">RTF (Real-Time Factor):</span>
+                      <span className="metric-value">{transcription.rtf.toFixed(2)}x</span>
+                    </div>
+                  )}
+                  <div className="metric-row">
+                    <span className="metric-label">모델:</span>
+                    <span className="metric-value">{transcription.model_version}</span>
+                  </div>
+                  <div className="metric-row">
+                    <span className="metric-label">언어:</span>
+                    <span className="metric-value">{transcription.language === 'ko' ? '한국어' : transcription.language}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* VAD Analysis */}
+              {transcription.vad_analysis && (
+                <div className="analysis-card">
+                  <div className="card-header">🎙️ VAD 분석</div>
+                  <div className="card-content">
+                    <div className="metric-row">
+                      <span className="metric-label">VAD 활성화:</span>
+                      <span className="metric-value">{transcription.vad_analysis.enabled ? '✅ 예' : '❌ 아니오'}</span>
+                    </div>
+                    {transcription.vad_analysis.enabled && transcription.vad_analysis.original_duration && (
+                      <>
+                        <div className="metric-row">
+                          <span className="metric-label">원본 길이:</span>
+                          <span className="metric-value">{transcription.vad_analysis.original_duration.toFixed(2)}초</span>
+                        </div>
+                        <div className="metric-row">
+                          <span className="metric-label">처리 후 길이:</span>
+                          <span className="metric-value">{transcription.vad_analysis.processed_duration?.toFixed(2)}초</span>
+                        </div>
+                        <div className="metric-row">
+                          <span className="metric-label">제거된 무음:</span>
+                          <span className="metric-value highlight">
+                            {transcription.vad_analysis.silence_removed?.toFixed(2)}초
+                            {transcription.vad_analysis.silence_removed && transcription.vad_analysis.original_duration && (
+                              <> ({((transcription.vad_analysis.silence_removed / transcription.vad_analysis.original_duration) * 100).toFixed(1)}%)</>
+                            )}
+                          </span>
+                        </div>
+                        <div className="metric-row">
+                          <span className="metric-label">음성 세그먼트:</span>
+                          <span className="metric-value">{transcription.vad_analysis.speech_segments_count}개</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Audio Quality */}
+              {transcription.audio_quality && (
+                <div className="analysis-card">
+                  <div className="card-header">🎵 오디오 품질</div>
+                  <div className="card-content">
+                    <div className="metric-row">
+                      <span className="metric-label">샘플레이트:</span>
+                      <span className="metric-value">{transcription.audio_quality.sample_rate} Hz</span>
+                    </div>
+                    <div className="metric-row">
+                      <span className="metric-label">채널:</span>
+                      <span className="metric-value">{transcription.audio_quality.channels === 1 ? 'Mono' : 'Stereo'}</span>
+                    </div>
+                    <div className="metric-row">
+                      <span className="metric-label">길이:</span>
+                      <span className="metric-value">{formatDuration(transcription.audio_quality.duration)}</span>
+                    </div>
+                    <div className="metric-row">
+                      <span className="metric-label">파일 크기:</span>
+                      <span className="metric-value">{transcription.audio_quality.file_size_mb.toFixed(2)} MB</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Confidence Statistics */}
+              <div className="analysis-card">
+                <div className="card-header">📈 신뢰도 통계</div>
+                <div className="card-content">
+                  {(() => {
+                    const confidences = transcription.segments
+                      .map(s => s.confidence)
+                      .filter((c): c is number => c !== null && c !== undefined)
+
+                    if (confidences.length === 0) {
+                      return <div className="metric-row">데이터 없음</div>
+                    }
+
+                    const avg = confidences.reduce((a, b) => a + b, 0) / confidences.length
+                    const min = Math.min(...confidences)
+                    const max = Math.max(...confidences)
+
+                    return (
+                      <>
+                        <div className="metric-row">
+                          <span className="metric-label">평균 신뢰도:</span>
+                          <span className="metric-value">{(avg * 100).toFixed(1)}%</span>
+                        </div>
+                        <div className="metric-row">
+                          <span className="metric-label">최소 신뢰도:</span>
+                          <span className="metric-value">{(min * 100).toFixed(1)}%</span>
+                        </div>
+                        <div className="metric-row">
+                          <span className="metric-label">최대 신뢰도:</span>
+                          <span className="metric-value">{(max * 100).toFixed(1)}%</span>
+                        </div>
+                        <div className="metric-row">
+                          <span className="metric-label">세그먼트 수:</span>
+                          <span className="metric-value">{transcription.segments.length}개</span>
+                        </div>
+                      </>
+                    )
+                  })()}
+                </div>
+              </div>
             </div>
           </div>
 
+          {/* Transcription Segments */}
           <div className="segments-container">
-            <h3>전사 결과</h3>
+            <h3>📝 전사 결과</h3>
             {transcription.segments.map((segment, idx) => (
               <div key={idx} className="segment">
                 <div className="segment-time">
