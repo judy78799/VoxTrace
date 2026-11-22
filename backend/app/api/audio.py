@@ -470,14 +470,31 @@ async def transcribe_audio_stream(
                 return
 
             # 2. 오디오 신호 분석
-            yield f"data: {json.dumps({'step': 'analyzing', 'message': '🔬 오디오 신호 분석 중...', 'progress': 10})}\n\n"
+            yield f"data: {json.dumps({'step': 'analyzing', 'substep': 'start', 'message': '🔬 오디오 신호 분석 중...', 'progress': 10})}\n\n"
+            await asyncio.sleep(0.05)
 
             signal_analysis_result = None
             try:
+                yield f"data: {json.dumps({'step': 'analyzing', 'substep': 'loading', 'substep_message': '오디오 데이터 로딩 중...', 'progress': 11})}\n\n"
+                await asyncio.sleep(0.05)
+
+                yield f"data: {json.dumps({'step': 'analyzing', 'substep': 'fft', 'substep_message': 'FFT 변환 및 주파수 분석 중...', 'progress': 13})}\n\n"
+                await asyncio.sleep(0.05)
+
                 analysis_result = await audio_analysis_model.analyze(
                     audio_path=audio_file.original_path,
                     generate_spectrogram=True,
                 )
+
+                yield f"data: {json.dumps({'step': 'analyzing', 'substep': 'snr', 'substep_message': 'SNR 및 노이즈 레벨 계산 완료', 'progress': 15})}\n\n"
+                await asyncio.sleep(0.05)
+
+                yield f"data: {json.dumps({'step': 'analyzing', 'substep': 'clipping', 'substep_message': '클리핑 감지 및 RMS 에너지 계산 완료', 'progress': 17})}\n\n"
+                await asyncio.sleep(0.05)
+
+                yield f"data: {json.dumps({'step': 'analyzing', 'substep': 'spectrogram', 'substep_message': 'Mel Spectrogram 생성 중...', 'progress': 18})}\n\n"
+                await asyncio.sleep(0.05)
+
                 signal_analysis_result = SignalAnalysis(
                     snr_db=analysis_result.snr_db,
                     frequency_analysis=FrequencyAnalysis(
@@ -496,64 +513,112 @@ async def transcribe_audio_stream(
                     quality_score=analysis_result.quality_score,
                     quality_issues=analysis_result.quality_issues,
                 )
-                yield f"data: {json.dumps({'step': 'analyzing_complete', 'message': f'✅ 신호 분석 완료 (품질: {analysis_result.quality_score:.1f}/100)', 'progress': 20})}\n\n"
+
+                yield f"data: {json.dumps({'step': 'analyzing', 'substep': 'complete', 'message': f'✅ 신호 분석 완료 (품질: {analysis_result.quality_score:.1f}/100)', 'progress': 20})}\n\n"
             except Exception as e:
-                yield f"data: {json.dumps({'step': 'analyzing_warning', 'message': f'⚠️ 신호 분석 실패, 계속 진행합니다', 'progress': 20})}\n\n"
+                yield f"data: {json.dumps({'step': 'analyzing', 'substep': 'error', 'message': f'⚠️ 신호 분석 실패, 계속 진행합니다', 'progress': 20})}\n\n"
 
             # 3. Enhancement (옵션)
             audio_path_for_processing = audio_file.original_path
             enhancement_result = None
 
             if enable_enhancement:
-                yield f"data: {json.dumps({'step': 'enhancing', 'message': '🎵 배경음 제거 중 (DeepFilterNet)...', 'progress': 25})}\n\n"
+                yield f"data: {json.dumps({'step': 'enhancing', 'substep': 'start', 'message': '🎵 배경음 제거 중 (DeepFilterNet)...', 'progress': 25})}\n\n"
+                await asyncio.sleep(0.05)
                 try:
+                    yield f"data: {json.dumps({'step': 'enhancing', 'substep': 'model_loading', 'substep_message': 'DeepFilterNet 모델 로딩 중...', 'progress': 26})}\n\n"
+                    await asyncio.sleep(0.1)
+
+                    yield f"data: {json.dumps({'step': 'enhancing', 'substep': 'resampling', 'substep_message': '오디오 리샘플링 (48kHz)...', 'progress': 28})}\n\n"
+                    await asyncio.sleep(0.05)
+
+                    yield f"data: {json.dumps({'step': 'enhancing', 'substep': 'processing', 'substep_message': '노이즈 프로파일 분석 및 필터링 중...', 'progress': 30})}\n\n"
+
                     enhancement_result = await enhancement_model.enhance_audio(
                         audio_path=audio_file.original_path,
                         output_path=None,
                     )
                     audio_path_for_processing = enhancement_result.enhanced_path
-                    yield f"data: {json.dumps({'step': 'enhancing_complete', 'message': f'✅ 배경음 제거 완료 ({enhancement_result.method})', 'progress': 35})}\n\n"
+
+                    yield f"data: {json.dumps({'step': 'enhancing', 'substep': 'saving', 'substep_message': '개선된 오디오 저장 중...', 'progress': 33})}\n\n"
+                    await asyncio.sleep(0.05)
+
+                    yield f"data: {json.dumps({'step': 'enhancing', 'substep': 'complete', 'message': f'✅ 배경음 제거 완료 ({enhancement_result.method})', 'progress': 35})}\n\n"
                 except Exception as e:
-                    yield f"data: {json.dumps({'step': 'enhancing_warning', 'message': '⚠️ 배경음 제거 실패, 원본 사용', 'progress': 35})}\n\n"
+                    yield f"data: {json.dumps({'step': 'enhancing', 'substep': 'error', 'message': '⚠️ 배경음 제거 실패, 원본 사용', 'progress': 35})}\n\n"
             else:
-                yield f"data: {json.dumps({'step': 'enhancing_skipped', 'message': '⏭️ 배경음 제거 생략', 'progress': 35})}\n\n"
+                yield f"data: {json.dumps({'step': 'enhancing', 'substep': 'skipped', 'message': '⏭️ 배경음 제거 생략', 'progress': 35})}\n\n"
 
             # 4. VAD (옵션)
             audio_path_for_asr = audio_path_for_processing
             vad_result = None
 
             if enable_vad:
-                yield f"data: {json.dumps({'step': 'vad', 'message': '🎙️ VAD 처리 중 (무음 제거)...', 'progress': 40})}\n\n"
+                yield f"data: {json.dumps({'step': 'vad', 'substep': 'start', 'message': '🎙️ VAD 처리 중 (무음 제거)...', 'progress': 40})}\n\n"
+                await asyncio.sleep(0.05)
                 try:
+                    yield f"data: {json.dumps({'step': 'vad', 'substep': 'model_loading', 'substep_message': 'Silero VAD 모델 로딩 중...', 'progress': 41})}\n\n"
+                    await asyncio.sleep(0.1)
+
+                    yield f"data: {json.dumps({'step': 'vad', 'substep': 'detecting', 'substep_message': '음성 구간 감지 중...', 'progress': 43})}\n\n"
+                    await asyncio.sleep(0.05)
+
                     vad_result = await vad_model.process_audio(
                         audio_path=audio_path_for_processing,
                         output_path=None,
                     )
                     audio_path_for_asr = str(Path(audio_path_for_processing).parent /
                                             f"{Path(audio_path_for_processing).stem}_vad{Path(audio_path_for_processing).suffix}")
-                    yield f"data: {json.dumps({'step': 'vad_complete', 'message': f'✅ VAD 완료 ({vad_result.silence_removed:.1f}초 제거)', 'progress': 50})}\n\n"
+
+                    yield f"data: {json.dumps({'step': 'vad', 'substep': 'merging', 'substep_message': '세그먼트 병합 및 무음 제거 중...', 'progress': 47})}\n\n"
+                    await asyncio.sleep(0.05)
+
+                    yield f"data: {json.dumps({'step': 'vad', 'substep': 'complete', 'message': f'✅ VAD 완료 ({vad_result.silence_removed:.1f}초 제거)', 'progress': 50})}\n\n"
                 except Exception as e:
-                    yield f"data: {json.dumps({'step': 'vad_warning', 'message': '⚠️ VAD 실패, 이전 오디오 사용', 'progress': 50})}\n\n"
+                    yield f"data: {json.dumps({'step': 'vad', 'substep': 'error', 'message': '⚠️ VAD 실패, 이전 오디오 사용', 'progress': 50})}\n\n"
             else:
-                yield f"data: {json.dumps({'step': 'vad_skipped', 'message': '⏭️ VAD 생략', 'progress': 50})}\n\n"
+                yield f"data: {json.dumps({'step': 'vad', 'substep': 'skipped', 'message': '⏭️ VAD 생략', 'progress': 50})}\n\n"
 
             # 5. ASR 전사
-            yield f"data: {json.dumps({'step': 'transcribing', 'message': '🎤 음성 인식 중... (시간이 걸릴 수 있습니다)', 'progress': 55})}\n\n"
+            yield f"data: {json.dumps({'step': 'transcribing', 'substep': 'start', 'message': '🎤 음성 인식 중... (시간이 걸릴 수 있습니다)', 'progress': 55})}\n\n"
+            await asyncio.sleep(0.05)
 
             try:
+                yield f"data: {json.dumps({'step': 'transcribing', 'substep': 'model_loading', 'substep_message': 'Whisper 모델 로딩 중...', 'progress': 57})}\n\n"
+                await asyncio.sleep(0.1)
+
+                yield f"data: {json.dumps({'step': 'transcribing', 'substep': 'decoding', 'substep_message': '오디오 디코딩 및 전처리 중...', 'progress': 60})}\n\n"
+                await asyncio.sleep(0.05)
+
+                yield f"data: {json.dumps({'step': 'transcribing', 'substep': 'mel_spectrogram', 'substep_message': 'Mel Spectrogram 추출 중...', 'progress': 63})}\n\n"
+                await asyncio.sleep(0.05)
+
+                yield f"data: {json.dumps({'step': 'transcribing', 'substep': 'language_detection', 'substep_message': '언어 감지 중...', 'progress': 65})}\n\n"
+                await asyncio.sleep(0.05)
+
+                yield f"data: {json.dumps({'step': 'transcribing', 'substep': 'processing', 'substep_message': '음성 토큰 디코딩 중... (가장 오래 걸립니다)', 'progress': 68})}\n\n"
+
                 asr_result = await asr_model.transcribe(
                     audio_path=audio_path_for_asr,
                     language=language,
                 )
-                yield f"data: {json.dumps({'step': 'transcribing_complete', 'message': f'✅ 전사 완료 ({len(asr_result.segments)}개 세그먼트)', 'progress': 85})}\n\n"
+
+                yield f"data: {json.dumps({'step': 'transcribing', 'substep': 'segmenting', 'substep_message': '세그먼트 생성 및 타임스탬프 정렬 중...', 'progress': 82})}\n\n"
+                await asyncio.sleep(0.05)
+
+                yield f"data: {json.dumps({'step': 'transcribing', 'substep': 'complete', 'message': f'✅ 전사 완료 ({len(asr_result.segments)}개 세그먼트)', 'progress': 85})}\n\n"
             except Exception as e:
                 yield f"data: {json.dumps({'step': 'error', 'message': f'전사 실패: {str(e)}'})}\n\n"
                 return
 
             # 6. 데이터베이스 저장
-            yield f"data: {json.dumps({'step': 'saving', 'message': '💾 결과 저장 중...', 'progress': 90})}\n\n"
+            yield f"data: {json.dumps({'step': 'saving', 'substep': 'start', 'message': '💾 결과 저장 중...', 'progress': 90})}\n\n"
+            await asyncio.sleep(0.05)
 
             from app.db.models import Transcript, TranscriptSegment as DBTranscriptSegment
+
+            yield f"data: {json.dumps({'step': 'saving', 'substep': 'transcript', 'substep_message': '트랜스크립트 메타데이터 생성 중...', 'progress': 91})}\n\n"
+            await asyncio.sleep(0.05)
 
             transcript = Transcript(
                 id=str(uuid.uuid4()),
@@ -567,6 +632,9 @@ async def transcribe_audio_stream(
                 created_at=datetime.now(),
             )
             db.add(transcript)
+
+            yield f"data: {json.dumps({'step': 'saving', 'substep': 'segments', 'substep_message': f'{len(asr_result.segments)}개 세그먼트 저장 중...', 'progress': 92})}\n\n"
+            await asyncio.sleep(0.05)
 
             for idx, seg in enumerate(asr_result.segments):
                 db_segment = DBTranscriptSegment(
@@ -583,11 +651,20 @@ async def transcribe_audio_stream(
                 )
                 db.add(db_segment)
 
+            yield f"data: {json.dumps({'step': 'saving', 'substep': 'committing', 'substep_message': '데이터베이스 커밋 중...', 'progress': 93})}\n\n"
+            await asyncio.sleep(0.05)
+
             await db.commit()
             await db.refresh(transcript)
 
+            yield f"data: {json.dumps({'step': 'saving', 'substep': 'complete', 'message': '✅ 저장 완료', 'progress': 94})}\n\n"
+
             # 7. Post-processing
-            yield f"data: {json.dumps({'step': 'post_processing', 'message': '🔍 품질 분석 중...', 'progress': 95})}\n\n"
+            yield f"data: {json.dumps({'step': 'post_processing', 'substep': 'start', 'message': '🔍 품질 분석 중...', 'progress': 95})}\n\n"
+            await asyncio.sleep(0.05)
+
+            yield f"data: {json.dumps({'step': 'post_processing', 'substep': 'filtering', 'substep_message': '의심 세그먼트 필터링 중...', 'progress': 96})}\n\n"
+            await asyncio.sleep(0.05)
 
             segments_dict = [
                 {
@@ -603,6 +680,9 @@ async def transcribe_audio_stream(
                 segments_dict,
                 auto_filter=enable_auto_filter
             )
+
+            yield f"data: {json.dumps({'step': 'post_processing', 'substep': 'quality_flags', 'substep_message': '품질 플래그 생성 중...', 'progress': 97})}\n\n"
+            await asyncio.sleep(0.05)
 
             # 8. 최종 결과 생성
             response_segments = [
@@ -647,6 +727,8 @@ async def transcribe_audio_stream(
 
             rtf = asr_result.processing_time / audio_file.duration if audio_file.duration else None
 
+            yield f"data: {json.dumps({'step': 'post_processing', 'substep': 'complete', 'message': '✅ 품질 분석 완료', 'progress': 98})}\n\n"
+
             final_result = TranscriptionResult(
                 file_id=audio_file.id,
                 segments=response_segments,
@@ -661,7 +743,7 @@ async def transcribe_audio_stream(
             )
 
             # 9. 완료
-            yield f"data: {json.dumps({'step': 'complete', 'message': '✅ 모든 작업 완료!', 'progress': 100, 'result': final_result.model_dump(mode='json')})}\n\n"
+            yield f"data: {json.dumps({'step': 'complete', 'substep': 'done', 'message': '✅ 모든 작업 완료!', 'progress': 100, 'result': final_result.model_dump(mode='json')})}\n\n"
 
         except Exception as e:
             yield f"data: {json.dumps({'step': 'error', 'message': f'오류 발생: {str(e)}'})}\n\n"

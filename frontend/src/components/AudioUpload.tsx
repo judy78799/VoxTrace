@@ -27,6 +27,16 @@ export function AudioUpload({ onUploadComplete, onTranscriptionComplete }: Audio
   const [currentStep, setCurrentStep] = useState<string>('')
   const [currentStepMessage, setCurrentStepMessage] = useState<string>('')
 
+  // Substep tracking
+  interface SubStep {
+    id: string
+    message: string
+    status: 'pending' | 'active' | 'complete'
+  }
+
+  const [substeps, setSubsteps] = useState<{ [key: string]: SubStep[] }>({})
+  const [completedSteps, setCompletedSteps] = useState<Set<string>>(new Set())
+
   // Options
   const [enableEnhancement, setEnableEnhancement] = useState(false)
   const [enableVad, setEnableVad] = useState(true)
@@ -63,8 +73,46 @@ export function AudioUpload({ onUploadComplete, onTranscriptionComplete }: Audio
 
           // Update progress UI
           setCurrentStep(data.step || '')
-          setCurrentStepMessage(data.message || '')
+          setCurrentStepMessage(data.message || data.substep_message || '')
           setTranscriptionProgress(data.progress || 0)
+
+          // Handle substeps
+          if (data.substep && data.step) {
+            setSubsteps((prev) => {
+              const stepSubsteps = prev[data.step] || []
+
+              if (data.substep === 'start') {
+                // Start new step with empty substeps
+                return { ...prev, [data.step]: [] }
+              } else if (data.substep === 'complete' || data.substep === 'done' || data.substep === 'skipped') {
+                // Mark step as complete
+                setCompletedSteps((completed) => new Set(completed).add(data.step))
+                return prev
+              } else if (data.substep_message) {
+                // Add or update substep
+                const existing = stepSubsteps.find(s => s.id === data.substep)
+                if (existing) {
+                  return {
+                    ...prev,
+                    [data.step]: stepSubsteps.map(s =>
+                      s.id === data.substep ? { ...s, status: 'complete' } : s
+                    )
+                  }
+                } else {
+                  return {
+                    ...prev,
+                    [data.step]: [...stepSubsteps, {
+                      id: data.substep,
+                      message: data.substep_message,
+                      status: 'active'
+                    }]
+                  }
+                }
+              }
+
+              return prev
+            })
+          }
 
           // Final result received
           if (data.step === 'complete' && data.result) {
@@ -349,13 +397,15 @@ export function AudioUpload({ onUploadComplete, onTranscriptionComplete }: Audio
             {Math.floor(transcriptionProgress)}%
           </p>
 
-          {/* Pipeline Steps */}
+          {/* Pipeline Steps - Accordion Style */}
           <div style={{
             marginTop: '1.5rem',
             padding: '1rem',
             backgroundColor: '#f8f9fa',
             borderRadius: '8px',
-            textAlign: 'left'
+            textAlign: 'left',
+            maxHeight: '500px',
+            overflowY: 'auto'
           }}>
             <div style={{ fontSize: '0.95rem', color: '#666', marginBottom: '0.75rem', fontWeight: '600' }}>
               처리 단계:
@@ -363,40 +413,88 @@ export function AudioUpload({ onUploadComplete, onTranscriptionComplete }: Audio
             {[
               { step: 'loading', label: '오디오 파일 로딩', emoji: '📂' },
               { step: 'analyzing', label: '신호 분석', emoji: '🔬' },
-              { step: 'enhancing', label: '배경음 제거 (DeepFilterNet)', emoji: '🎵' },
-              { step: 'vad', label: 'VAD 처리 (무음 제거)', emoji: '🎙️' },
+              { step: 'enhancing', label: '배경음 제거', emoji: '🎵' },
+              { step: 'vad', label: 'VAD 처리', emoji: '🎙️' },
               { step: 'transcribing', label: '음성 인식', emoji: '🎤' },
               { step: 'saving', label: '데이터베이스 저장', emoji: '💾' },
               { step: 'post_processing', label: '후처리', emoji: '🔍' },
               { step: 'complete', label: '완료', emoji: '✅' },
-            ].map((item, idx) => {
-              const isCompleted = transcriptionProgress > idx * (100 / 8)
-              const isCurrent = currentStep.includes(item.step)
+            ].map((item) => {
+              const isCompleted = completedSteps.has(item.step)
+              const isCurrent = currentStep === item.step
+              const isPending = !isCompleted && !isCurrent
+              const stepSubsteps = substeps[item.step] || []
 
               return (
                 <div
                   key={item.step}
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.5rem',
-                    padding: '0.4rem 0.5rem',
-                    marginBottom: '0.3rem',
-                    borderRadius: '6px',
-                    backgroundColor: isCurrent ? '#e3f2fd' : 'transparent',
-                    color: isCompleted ? '#333' : '#999',
-                    fontWeight: isCurrent ? '600' : '400',
-                    transition: 'all 0.3s ease'
+                    marginBottom: '0.5rem',
+                    transition: 'all 0.3s ease',
+                    opacity: isPending ? 0.5 : 1
                   }}
                 >
-                  <span style={{ fontSize: '1.2rem' }}>
-                    {isCompleted ? '✓' : item.emoji}
-                  </span>
-                  <span style={{ flex: 1 }}>{item.label}</span>
-                  {isCurrent && (
-                    <span style={{ fontSize: '0.8rem', color: '#1976d2' }}>
-                      진행 중...
+                  {/* Main Step Header */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      padding: isCompleted ? '0.3rem 0.5rem' : '0.5rem 0.5rem',
+                      borderRadius: '6px',
+                      backgroundColor: isCurrent ? '#e3f2fd' : isCompleted ? '#f0f0f0' : 'transparent',
+                      fontWeight: isCurrent ? '600' : isCompleted ? '500' : '400',
+                      fontSize: isCompleted ? '0.9rem' : '1rem',
+                      transition: 'all 0.3s ease',
+                      borderLeft: isCurrent ? '3px solid #1976d2' : isCompleted ? '3px solid #4caf50' : 'none',
+                      paddingLeft: (isCurrent || isCompleted) ? '0.7rem' : '0.5rem'
+                    }}
+                  >
+                    <span style={{ fontSize: isCompleted ? '1rem' : '1.2rem' }}>
+                      {isCompleted ? '✓' : item.emoji}
                     </span>
+                    <span style={{ flex: 1, color: isPending ? '#999' : '#333' }}>
+                      {item.label}
+                    </span>
+                    {isCurrent && (
+                      <span style={{ fontSize: '0.75rem', color: '#1976d2' }}>
+                        진행 중
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Substeps */}
+                  {isCurrent && stepSubsteps.length > 0 && (
+                    <div style={{
+                      marginLeft: '2rem',
+                      marginTop: '0.5rem',
+                      fontSize: '0.85rem',
+                      color: '#666'
+                    }}>
+                      {stepSubsteps.map((substep) => (
+                        <div
+                          key={substep.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.4rem',
+                            padding: '0.25rem 0',
+                            transition: 'all 0.3s ease',
+                            color: substep.status === 'complete' ? '#666' : '#1976d2'
+                          }}
+                        >
+                          <span style={{ fontSize: '0.9rem' }}>
+                            {substep.status === 'complete' ? '✓' : '⏳'}
+                          </span>
+                          <span style={{
+                            textDecoration: substep.status === 'complete' ? 'line-through' : 'none',
+                            opacity: substep.status === 'complete' ? 0.7 : 1
+                          }}>
+                            {substep.message}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               )
