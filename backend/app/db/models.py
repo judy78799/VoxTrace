@@ -140,6 +140,76 @@ class TranscriptEdit(Base):
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
+class AudioQualityAnalysis(Base):
+    """
+    Audio Quality Analysis Results
+
+    음성 파일의 음향적 특성 및 품질 분석 결과 저장
+    각 파일당 하나의 분석 결과 (1:1 관계)
+    """
+
+    __tablename__ = "audio_quality_analysis"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    audio_file_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+
+    # Basic Audio Metadata
+    duration: Mapped[float] = mapped_column(Float, nullable=False)
+    sample_rate: Mapped[int] = mapped_column(Integer, nullable=False)
+    channels: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # SNR Analysis
+    snr_db: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # Frequency Analysis
+    low_freq_energy: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    mid_freq_energy: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    high_freq_energy: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    spectral_centroid: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    spectral_rolloff: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    spectral_bandwidth: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # Clipping / Distortion
+    clipping_detected: Mapped[bool] = mapped_column(Boolean, default=False)
+    clipping_ratio: Mapped[float] = mapped_column(Float, default=0.0)
+
+    # Energy Metrics
+    rms_energy: Mapped[float] = mapped_column(Float, nullable=False)
+    zero_crossing_rate: Mapped[float] = mapped_column(Float, nullable=False)
+
+    # VAD Analysis
+    speech_ratio: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    speech_segments_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    # Reverberation
+    reverberation_level: Mapped[Optional[str]] = mapped_column(
+        String(20), nullable=True
+    )  # 'none', 'low', 'medium', 'high'
+    reverberation_time_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # Overlapping Speech
+    overlapping_speech_detected: Mapped[bool] = mapped_column(Boolean, default=False)
+    overlapping_speech_ratio: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # Quality Assessment
+    quality_score: Mapped[float] = mapped_column(Float, nullable=False)  # 0-100
+    quality_issues: Mapped[Optional[dict]] = mapped_column(
+        JSON, nullable=True
+    )  # List of issues as JSON
+    noise_level: Mapped[Optional[str]] = mapped_column(
+        String(20), nullable=True
+    )  # 'low', 'medium', 'high', 'very_high'
+    speech_quality: Mapped[Optional[str]] = mapped_column(
+        String(20), nullable=True
+    )  # 'excellent', 'good', 'fair', 'poor'
+
+    # Analysis Metadata
+    analyzed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    analysis_version: Mapped[str] = mapped_column(
+        String(20), default="1.0.0"
+    )  # For tracking analysis algorithm versions
+
+
 # ============================================================================
 # Evaluation & Benchmarking System (Phase 2+)
 # ============================================================================

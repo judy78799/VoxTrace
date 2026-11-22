@@ -15,6 +15,7 @@ from app.db.models import (
     Transcript,
     TranscriptSegment,
     TranscriptEdit,
+    AudioQualityAnalysis,
     EvaluationDataset,
     ExperimentConfig,
     Evaluation,
@@ -64,6 +65,7 @@ async def init_db():
     print("   - transcripts")
     print("   - transcript_segments")
     print("   - transcript_edits")
+    print("   - audio_quality_analysis (NEW)")
     print("\n   평가 시스템:")
     print("   - evaluation_datasets")
     print("   - experiment_configs")

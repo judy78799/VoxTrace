@@ -162,7 +162,7 @@ from app.models.enhancement import EnhancementModel
 
 asr_model = ASRModel(model_name="medium")
 vad_model = VADModel()
-audio_analysis_model = AudioAnalysisModel()
+audio_analysis_model = AudioAnalysisModel(vad_model=vad_model)  # VAD 모델 전달
 enhancement_model = EnhancementModel()
 
 
@@ -190,11 +190,15 @@ async def transcribe_audio(
 
     # 2. 오디오 신호 분석 (원본 파일)
     signal_analysis_result = None
+    analysis_result = None
     try:
         print(f"🔬 Analyzing audio signal quality...")
         analysis_result = await audio_analysis_model.analyze(
             audio_path=audio_file.original_path,
             generate_spectrogram=True,
+            enable_vad_analysis=request.enable_vad,  # VAD 요청 여부에 따라
+            enable_reverberation=True,
+            enable_overlap_detection=False,  # 느려서 기본적으로 비활성화
         )
 
         # 스키마로 변환
@@ -217,6 +221,44 @@ async def transcribe_audio(
             quality_issues=analysis_result.quality_issues,
         )
         print(f"✅ Signal analysis complete: Quality score = {analysis_result.quality_score:.1f}/100")
+
+        # 분석 결과를 DB에 저장
+        from app.db.models import AudioQualityAnalysis
+
+        quality_analysis = AudioQualityAnalysis(
+            id=str(uuid.uuid4()),
+            audio_file_id=audio_file.id,
+            duration=analysis_result.duration,
+            sample_rate=analysis_result.sample_rate,
+            channels=audio_file.channels or 1,
+            snr_db=analysis_result.snr_db,
+            low_freq_energy=analysis_result.frequency_analysis.low_freq_energy if analysis_result.frequency_analysis else None,
+            mid_freq_energy=analysis_result.frequency_analysis.mid_freq_energy if analysis_result.frequency_analysis else None,
+            high_freq_energy=analysis_result.frequency_analysis.high_freq_energy if analysis_result.frequency_analysis else None,
+            spectral_centroid=analysis_result.frequency_analysis.spectral_centroid if analysis_result.frequency_analysis else None,
+            spectral_rolloff=analysis_result.frequency_analysis.spectral_rolloff if analysis_result.frequency_analysis else None,
+            spectral_bandwidth=analysis_result.frequency_analysis.spectral_bandwidth if analysis_result.frequency_analysis else None,
+            clipping_detected=analysis_result.clipping_detected,
+            clipping_ratio=analysis_result.clipping_percentage / 100.0 if analysis_result.clipping_percentage else 0.0,
+            rms_energy=analysis_result.rms_energy,
+            zero_crossing_rate=analysis_result.zero_crossing_rate,
+            speech_ratio=analysis_result.speech_ratio,
+            speech_segments_count=analysis_result.speech_segments_count,
+            reverberation_level=analysis_result.reverberation_level,
+            reverberation_time_ms=analysis_result.reverberation_time_ms,
+            overlapping_speech_detected=analysis_result.overlapping_speech_detected,
+            overlapping_speech_ratio=analysis_result.overlapping_speech_ratio,
+            quality_score=analysis_result.quality_score,
+            quality_issues={"issues": analysis_result.quality_issues} if analysis_result.quality_issues else None,
+            noise_level=analysis_result.noise_level,
+            speech_quality=analysis_result.speech_quality,
+            analyzed_at=datetime.now(),
+            analysis_version="1.0.0",
+        )
+        db.add(quality_analysis)
+        await db.commit()
+        print(f"✅ Quality analysis saved to database")
+
     except Exception as e:
         print(f"⚠️  Signal analysis failed: {e}")
         # 분석 실패해도 전사는 계속 진행
@@ -395,14 +437,108 @@ async def transcribe_audio(
 
 
 @router.get("/file/{file_id}")
-async def get_audio_info(file_id: str):
+async def get_audio_info(file_id: str, db: AsyncSession = Depends(get_db)):
     """Get audio file metadata"""
+    result = await db.execute(
+        select(AudioFile).where(AudioFile.id == file_id)
+    )
+    audio_file = result.scalar_one_or_none()
+
+    if not audio_file:
+        raise HTTPException(status_code=404, detail=f"Audio file not found: {file_id}")
+
     return {
-        "file_id": file_id,
+        "file_id": audio_file.id,
+        "filename": audio_file.filename,
         "status": "ready",
         "metadata": {
-            "duration": 120.5,
-            "sample_rate": 16000,
-            "channels": 1,
+            "duration": audio_file.duration,
+            "sample_rate": audio_file.sample_rate,
+            "channels": audio_file.channels,
+            "format": audio_file.format,
+            "size_mb": audio_file.size_bytes / 1024 / 1024,
         },
+    }
+
+
+@router.get("/file/{file_id}/quality-analysis")
+async def get_quality_analysis(file_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Get audio quality analysis for a file
+
+    Returns detailed quality metrics in JSON format
+    """
+    from app.db.models import AudioQualityAnalysis
+
+    # 오디오 파일 확인
+    audio_result = await db.execute(
+        select(AudioFile).where(AudioFile.id == file_id)
+    )
+    audio_file = audio_result.scalar_one_or_none()
+
+    if not audio_file:
+        raise HTTPException(status_code=404, detail=f"Audio file not found: {file_id}")
+
+    # 품질 분석 결과 조회
+    analysis_result = await db.execute(
+        select(AudioQualityAnalysis).where(AudioQualityAnalysis.audio_file_id == file_id)
+    )
+    analysis = analysis_result.scalar_one_or_none()
+
+    if not analysis:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Quality analysis not found for file: {file_id}. Please transcribe the file first."
+        )
+
+    # JSON 형식으로 반환
+    return {
+        "file_name": audio_file.filename,
+        "file_id": audio_file.id,
+        "duration": analysis.duration,
+        "sample_rate": analysis.sample_rate,
+        "channels": analysis.channels,
+
+        # 음성 분석
+        "speech_ratio": analysis.speech_ratio,
+        "speech_segments_count": analysis.speech_segments_count,
+
+        # 노이즈 분석
+        "estimated_snr_db": analysis.snr_db,
+        "noise_level": analysis.noise_level,
+
+        # 왜곡/클리핑
+        "clipping_detected": analysis.clipping_detected,
+        "clipping_ratio": analysis.clipping_ratio,
+
+        # 잔향
+        "reverberation_level": analysis.reverberation_level,
+        "reverberation_time_ms": analysis.reverberation_time_ms,
+
+        # 화자 중첩
+        "overlapping_speech": analysis.overlapping_speech_detected,
+        "overlapping_speech_ratio": analysis.overlapping_speech_ratio,
+
+        # 품질 평가
+        "quality_score": analysis.quality_score,
+        "speech_quality": analysis.speech_quality,
+        "quality_issues": analysis.quality_issues,
+
+        # 주파수 분석
+        "frequency_analysis": {
+            "low_freq_energy": analysis.low_freq_energy,
+            "mid_freq_energy": analysis.mid_freq_energy,
+            "high_freq_energy": analysis.high_freq_energy,
+            "spectral_centroid": analysis.spectral_centroid,
+            "spectral_rolloff": analysis.spectral_rolloff,
+            "spectral_bandwidth": analysis.spectral_bandwidth,
+        } if analysis.low_freq_energy is not None else None,
+
+        # 에너지 지표
+        "rms_energy": analysis.rms_energy,
+        "zero_crossing_rate": analysis.zero_crossing_rate,
+
+        # 메타데이터
+        "analyzed_at": analysis.analyzed_at.isoformat(),
+        "analysis_version": analysis.analysis_version,
     }
