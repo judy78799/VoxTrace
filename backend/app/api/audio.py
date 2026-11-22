@@ -5,11 +5,14 @@ Handles audio file uploads, preprocessing, and transcription requests
 """
 
 import uuid
+import json
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, Form
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -433,6 +436,244 @@ async def transcribe_audio(
         audio_quality=audio_quality,
         signal_analysis=signal_analysis_result,
         rtf=rtf,
+    )
+
+
+@router.get("/transcribe/stream")
+async def transcribe_audio_stream(
+    file_id: str,
+    language: str = "ko",
+    enable_vad: bool = True,
+    enable_diarization: bool = False,
+    enable_enhancement: bool = False,
+    enable_auto_filter: bool = False,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Transcribe audio with real-time progress updates via SSE
+
+    Returns Server-Sent Events stream with progress updates
+    """
+    async def generate_progress():
+        """Generate SSE progress events"""
+        try:
+            # 1. 오디오 파일 조회
+            yield f"data: {json.dumps({'step': 'loading', 'message': '오디오 파일 로딩 중...', 'progress': 0})}\n\n"
+
+            result = await db.execute(
+                select(AudioFile).where(AudioFile.id == file_id)
+            )
+            audio_file = result.scalar_one_or_none()
+
+            if not audio_file:
+                yield f"data: {json.dumps({'step': 'error', 'message': f'Audio file not found: {file_id}'})}\n\n"
+                return
+
+            # 2. 오디오 신호 분석
+            yield f"data: {json.dumps({'step': 'analyzing', 'message': '🔬 오디오 신호 분석 중...', 'progress': 10})}\n\n"
+
+            signal_analysis_result = None
+            try:
+                analysis_result = await audio_analysis_model.analyze(
+                    audio_path=audio_file.original_path,
+                    generate_spectrogram=True,
+                )
+                signal_analysis_result = SignalAnalysis(
+                    snr_db=analysis_result.snr_db,
+                    frequency_analysis=FrequencyAnalysis(
+                        low_freq_energy=analysis_result.frequency_analysis.low_freq_energy,
+                        mid_freq_energy=analysis_result.frequency_analysis.mid_freq_energy,
+                        high_freq_energy=analysis_result.frequency_analysis.high_freq_energy,
+                        spectral_centroid=analysis_result.frequency_analysis.spectral_centroid,
+                        spectral_rolloff=analysis_result.frequency_analysis.spectral_rolloff,
+                        spectral_bandwidth=analysis_result.frequency_analysis.spectral_bandwidth,
+                    ) if analysis_result.frequency_analysis else None,
+                    clipping_detected=analysis_result.clipping_detected,
+                    clipping_percentage=analysis_result.clipping_percentage,
+                    rms_energy=analysis_result.rms_energy,
+                    zero_crossing_rate=analysis_result.zero_crossing_rate,
+                    spectrogram_base64=analysis_result.spectrogram_base64,
+                    quality_score=analysis_result.quality_score,
+                    quality_issues=analysis_result.quality_issues,
+                )
+                yield f"data: {json.dumps({'step': 'analyzing_complete', 'message': f'✅ 신호 분석 완료 (품질: {analysis_result.quality_score:.1f}/100)', 'progress': 20})}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'step': 'analyzing_warning', 'message': f'⚠️ 신호 분석 실패, 계속 진행합니다', 'progress': 20})}\n\n"
+
+            # 3. Enhancement (옵션)
+            audio_path_for_processing = audio_file.original_path
+            enhancement_result = None
+
+            if enable_enhancement:
+                yield f"data: {json.dumps({'step': 'enhancing', 'message': '🎵 배경음 제거 중 (DeepFilterNet)...', 'progress': 25})}\n\n"
+                try:
+                    enhancement_result = await enhancement_model.enhance_audio(
+                        audio_path=audio_file.original_path,
+                        output_path=None,
+                    )
+                    audio_path_for_processing = enhancement_result.enhanced_path
+                    yield f"data: {json.dumps({'step': 'enhancing_complete', 'message': f'✅ 배경음 제거 완료 ({enhancement_result.method})', 'progress': 35})}\n\n"
+                except Exception as e:
+                    yield f"data: {json.dumps({'step': 'enhancing_warning', 'message': '⚠️ 배경음 제거 실패, 원본 사용', 'progress': 35})}\n\n"
+            else:
+                yield f"data: {json.dumps({'step': 'enhancing_skipped', 'message': '⏭️ 배경음 제거 생략', 'progress': 35})}\n\n"
+
+            # 4. VAD (옵션)
+            audio_path_for_asr = audio_path_for_processing
+            vad_result = None
+
+            if enable_vad:
+                yield f"data: {json.dumps({'step': 'vad', 'message': '🎙️ VAD 처리 중 (무음 제거)...', 'progress': 40})}\n\n"
+                try:
+                    vad_result = await vad_model.process_audio(
+                        audio_path=audio_path_for_processing,
+                        output_path=None,
+                    )
+                    audio_path_for_asr = str(Path(audio_path_for_processing).parent /
+                                            f"{Path(audio_path_for_processing).stem}_vad{Path(audio_path_for_processing).suffix}")
+                    yield f"data: {json.dumps({'step': 'vad_complete', 'message': f'✅ VAD 완료 ({vad_result.silence_removed:.1f}초 제거)', 'progress': 50})}\n\n"
+                except Exception as e:
+                    yield f"data: {json.dumps({'step': 'vad_warning', 'message': '⚠️ VAD 실패, 이전 오디오 사용', 'progress': 50})}\n\n"
+            else:
+                yield f"data: {json.dumps({'step': 'vad_skipped', 'message': '⏭️ VAD 생략', 'progress': 50})}\n\n"
+
+            # 5. ASR 전사
+            yield f"data: {json.dumps({'step': 'transcribing', 'message': '🎤 음성 인식 중... (시간이 걸릴 수 있습니다)', 'progress': 55})}\n\n"
+
+            try:
+                asr_result = await asr_model.transcribe(
+                    audio_path=audio_path_for_asr,
+                    language=language,
+                )
+                yield f"data: {json.dumps({'step': 'transcribing_complete', 'message': f'✅ 전사 완료 ({len(asr_result.segments)}개 세그먼트)', 'progress': 85})}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'step': 'error', 'message': f'전사 실패: {str(e)}'})}\n\n"
+                return
+
+            # 6. 데이터베이스 저장
+            yield f"data: {json.dumps({'step': 'saving', 'message': '💾 결과 저장 중...', 'progress': 90})}\n\n"
+
+            from app.db.models import Transcript, TranscriptSegment as DBTranscriptSegment
+
+            transcript = Transcript(
+                id=str(uuid.uuid4()),
+                audio_file_id=audio_file.id,
+                model_name="mlx-whisper",
+                model_version=asr_model.model_name,
+                language=language,
+                diarization_enabled=enable_diarization,
+                enhancement_enabled=enable_enhancement,
+                processing_time=asr_result.processing_time,
+                created_at=datetime.now(),
+            )
+            db.add(transcript)
+
+            for idx, seg in enumerate(asr_result.segments):
+                db_segment = DBTranscriptSegment(
+                    id=str(uuid.uuid4()),
+                    transcript_id=transcript.id,
+                    start_time=seg.start,
+                    end_time=seg.end,
+                    original_text=seg.text,
+                    confidence=seg.confidence,
+                    speaker=None,
+                    edited_text=None,
+                    is_edited=False,
+                    segment_index=idx,
+                )
+                db.add(db_segment)
+
+            await db.commit()
+            await db.refresh(transcript)
+
+            # 7. Post-processing
+            yield f"data: {json.dumps({'step': 'post_processing', 'message': '🔍 품질 분석 중...', 'progress': 95})}\n\n"
+
+            segments_dict = [
+                {
+                    "start": seg.start,
+                    "end": seg.end,
+                    "text": seg.text,
+                    "confidence": seg.confidence if seg.confidence is not None else 1.0,
+                }
+                for seg in asr_result.segments
+            ]
+
+            processed_segments = filter_suspicious_segments(
+                segments_dict,
+                auto_filter=enable_auto_filter
+            )
+
+            # 8. 최종 결과 생성
+            response_segments = [
+                TranscriptionSegment(
+                    start=seg["start"],
+                    end=seg["end"],
+                    text=seg["text"],
+                    speaker=None,
+                    confidence=seg["confidence"],
+                    quality_flags=[
+                        QualityFlag(
+                            type=flag["type"],
+                            severity=flag["severity"],
+                            reason=flag["reason"]
+                        )
+                        for flag in seg["quality_flags"]
+                    ],
+                    is_suspicious=seg["is_suspicious"],
+                    is_filtered=seg["is_filtered"],
+                )
+                for seg in processed_segments
+            ]
+
+            vad_analysis = None
+            if vad_result:
+                vad_analysis = VADAnalysis(
+                    enabled=True,
+                    original_duration=vad_result.original_duration,
+                    processed_duration=vad_result.processed_duration,
+                    silence_removed=vad_result.silence_removed,
+                    speech_segments_count=len(vad_result.segments),
+                )
+            else:
+                vad_analysis = VADAnalysis(enabled=False)
+
+            audio_quality = AudioQualityMetrics(
+                sample_rate=audio_file.sample_rate or 0,
+                channels=audio_file.channels or 0,
+                duration=audio_file.duration or 0.0,
+                file_size_mb=audio_file.size_bytes / 1024 / 1024,
+            )
+
+            rtf = asr_result.processing_time / audio_file.duration if audio_file.duration else None
+
+            final_result = TranscriptionResult(
+                file_id=audio_file.id,
+                segments=response_segments,
+                language=asr_result.language,
+                processing_time=asr_result.processing_time,
+                model_version=f"mlx-whisper-{asr_model.model_name}",
+                created_at=transcript.created_at,
+                vad_analysis=vad_analysis,
+                audio_quality=audio_quality,
+                signal_analysis=signal_analysis_result,
+                rtf=rtf,
+            )
+
+            # 9. 완료
+            yield f"data: {json.dumps({'step': 'complete', 'message': '✅ 모든 작업 완료!', 'progress': 100, 'result': final_result.model_dump(mode='json')})}\n\n"
+
+        except Exception as e:
+            yield f"data: {json.dumps({'step': 'error', 'message': f'오류 발생: {str(e)}'})}\n\n"
+
+    return StreamingResponse(
+        generate_progress(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
     )
 
 

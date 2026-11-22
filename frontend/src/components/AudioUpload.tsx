@@ -24,6 +24,8 @@ export function AudioUpload({ onUploadComplete, onTranscriptionComplete }: Audio
   const [transcribing, setTranscribing] = useState(false)
   const [transcription, setTranscription] = useState<TranscriptionResult | null>(null)
   const [transcriptionProgress, setTranscriptionProgress] = useState(0)
+  const [currentStep, setCurrentStep] = useState<string>('')
+  const [currentStepMessage, setCurrentStepMessage] = useState<string>('')
 
   // Options
   const [enableEnhancement, setEnableEnhancement] = useState(false)
@@ -38,44 +40,55 @@ export function AudioUpload({ onUploadComplete, onTranscriptionComplete }: Audio
 
     setTranscribing(true)
     setTranscriptionProgress(0)
+    setCurrentStep('')
+    setCurrentStepMessage('')
     setError(null)
 
-    // Simulate progress based on audio duration
-    const audioDuration = result.duration || 60 // seconds
-    const estimatedProcessingTime = audioDuration * 0.5 // Estimate: 0.5x realtime
-    const progressInterval = setInterval(() => {
-      setTranscriptionProgress(prev => {
-        // Slow down as we approach 90%
-        if (prev >= 90) return prev + 0.5
-        if (prev >= 70) return prev + 1
-        return prev + 2
-      })
-    }, (estimatedProcessingTime * 1000) / 50) // Update 50 times during estimated duration
-
     try {
-      const transcriptionResult = await api.transcribeAudio(result.file_id, {
-        language: 'ko',
-        enable_vad: enableVad,
-        enable_diarization: false,
-        enable_enhancement: enableEnhancement,
-        enable_auto_filter: enableAutoFilter,
-      })
+      // Connect to SSE endpoint for real-time progress
+      const eventSource = new EventSource(
+        `/api/audio/transcribe/stream?` + new URLSearchParams({
+          file_id: result.file_id,
+          language: 'ko',
+          enable_vad: String(enableVad),
+          enable_diarization: 'false',
+          enable_enhancement: String(enableEnhancement),
+          enable_auto_filter: String(enableAutoFilter),
+        })
+      )
 
-      clearInterval(progressInterval)
-      setTranscriptionProgress(100)
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
 
-      // Small delay to show 100% before showing results
-      await new Promise(resolve => setTimeout(resolve, 300))
+          // Update progress UI
+          setCurrentStep(data.step || '')
+          setCurrentStepMessage(data.message || '')
+          setTranscriptionProgress(data.progress || 0)
 
-      setTranscription(transcriptionResult)
-
-      if (onTranscriptionComplete) {
-        onTranscriptionComplete(transcriptionResult)
+          // Final result received
+          if (data.step === 'complete' && data.result) {
+            setTranscription(data.result)
+            if (onTranscriptionComplete) {
+              onTranscriptionComplete(data.result)
+            }
+            eventSource.close()
+            setTranscribing(false)
+          }
+        } catch (err) {
+          console.error('Failed to parse SSE message:', err)
+        }
       }
+
+      eventSource.onerror = (err) => {
+        console.error('SSE error:', err)
+        setError('전사 중 오류가 발생했습니다')
+        eventSource.close()
+        setTranscribing(false)
+      }
+
     } catch (err) {
-      clearInterval(progressInterval)
       setError(err instanceof Error ? err.message : '전사 실패')
-    } finally {
       setTranscribing(false)
     }
   }
@@ -309,7 +322,16 @@ export function AudioUpload({ onUploadComplete, onTranscriptionComplete }: Audio
       {transcribing && (
         <div className="transcription-progress">
           <div className="progress-spinner"></div>
-          <p>음성을 텍스트로 변환 중입니다...</p>
+
+          {/* Current Step Message */}
+          <p style={{
+            fontSize: '1.1rem',
+            fontWeight: '600',
+            marginTop: '1rem',
+            marginBottom: '0.5rem'
+          }}>
+            {currentStepMessage || '준비 중...'}
+          </p>
 
           {/* Progress bar with percentage */}
           <div className="progress-bar" style={{ marginTop: '1rem' }}>
@@ -327,7 +349,63 @@ export function AudioUpload({ onUploadComplete, onTranscriptionComplete }: Audio
             {Math.floor(transcriptionProgress)}%
           </p>
 
-          <p className="progress-hint">첫 실행 시 모델 다운로드로 인해 시간이 걸릴 수 있습니다.</p>
+          {/* Pipeline Steps */}
+          <div style={{
+            marginTop: '1.5rem',
+            padding: '1rem',
+            backgroundColor: '#f8f9fa',
+            borderRadius: '8px',
+            textAlign: 'left'
+          }}>
+            <div style={{ fontSize: '0.95rem', color: '#666', marginBottom: '0.75rem', fontWeight: '600' }}>
+              처리 단계:
+            </div>
+            {[
+              { step: 'loading', label: '오디오 파일 로딩', emoji: '📂' },
+              { step: 'analyzing', label: '신호 분석', emoji: '🔬' },
+              { step: 'enhancing', label: '배경음 제거 (DeepFilterNet)', emoji: '🎵' },
+              { step: 'vad', label: 'VAD 처리 (무음 제거)', emoji: '🎙️' },
+              { step: 'transcribing', label: '음성 인식', emoji: '🎤' },
+              { step: 'saving', label: '데이터베이스 저장', emoji: '💾' },
+              { step: 'post_processing', label: '후처리', emoji: '🔍' },
+              { step: 'complete', label: '완료', emoji: '✅' },
+            ].map((item, idx) => {
+              const isCompleted = transcriptionProgress > idx * (100 / 8)
+              const isCurrent = currentStep.includes(item.step)
+
+              return (
+                <div
+                  key={item.step}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    padding: '0.4rem 0.5rem',
+                    marginBottom: '0.3rem',
+                    borderRadius: '6px',
+                    backgroundColor: isCurrent ? '#e3f2fd' : 'transparent',
+                    color: isCompleted ? '#333' : '#999',
+                    fontWeight: isCurrent ? '600' : '400',
+                    transition: 'all 0.3s ease'
+                  }}
+                >
+                  <span style={{ fontSize: '1.2rem' }}>
+                    {isCompleted ? '✓' : item.emoji}
+                  </span>
+                  <span style={{ flex: 1 }}>{item.label}</span>
+                  {isCurrent && (
+                    <span style={{ fontSize: '0.8rem', color: '#1976d2' }}>
+                      진행 중...
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          <p className="progress-hint" style={{ marginTop: '1rem' }}>
+            첫 실행 시 모델 다운로드로 인해 시간이 걸릴 수 있습니다.
+          </p>
         </div>
       )}
 

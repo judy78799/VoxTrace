@@ -31,6 +31,15 @@ VoxTrace 프로젝트의 모든 중요한 변경사항은 이 문서에 기록�
   - 세그먼트별 품질 플래그 시각화 (경고/오류 색상)
   - 필터링된 세그먼트 숨김/표시 토글 기능
 
+- **실시간 전사 진행 상황 표시** (SSE)
+  - Server-Sent Events 기반 실시간 진행 업데이트
+  - 8단계 파이프라인 단계별 시각화 (로딩 → 분석 → Enhancement → VAD → ASR → 저장 → 후처리 → 완료)
+  - 각 단계별 진행률(0-100%) 및 이모지 아이콘 표시
+  - 현재 진행 중인 단계 하이라이트 표시
+  - 완료된 단계 체크마크 표시
+  - Backend: `/api/audio/transcribe/stream` GET 엔드포인트
+  - Frontend: EventSource 기반 실시간 UI 업데이트
+
 - **커밋 컨벤션 가이드** (`COMMIT_CONVENTION.md`)
   - Conventional Commits 기반
   - VoxTrace 프로젝트 특화 scope 정의
