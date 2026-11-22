@@ -25,7 +25,7 @@ async def lifespan(app: FastAPI):
     # Startup
     print("🚀 VoxTrace Backend Starting...")
     await init_db()
-    print("✅ Database initialized")
+    print("✅ Database ready")
 
     yield
 

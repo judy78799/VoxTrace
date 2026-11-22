@@ -24,12 +24,15 @@ from app.db.models import (
 
 async def init_db():
     """
-    데이터베이스 초기화
+    데이터베이스 준비 (기존 데이터 보존)
 
     Phase 1에서 정의한 모든 테이블 생성:
     - 기본 테이블: 7개
     - 평가 시스템: 4개
     총 11개 테이블
+
+    주의: create_all()은 존재하지 않는 테이블만 생성하며,
+         기존 테이블과 데이터는 절대 삭제하지 않습니다.
     """
     # 데이터 디렉토리 생성
     data_dir = Path("./data")
@@ -46,14 +49,14 @@ async def init_db():
     print(f"   - Uploads: {uploads_dir}")
     print(f"   - Processed: {processed_dir}")
 
-    # 테이블 생성
+    # 테이블 생성 (IF NOT EXISTS)
     async with engine.begin() as conn:
-        # 모든 테이블 생성
+        # 존재하지 않는 테이블만 생성 (기존 데이터 보존)
         await conn.run_sync(Base.metadata.create_all)
 
-    print("\n✅ 데이터베이스 초기화 완료!")
+    print("\n✅ 데이터베이스 준비 완료! (기존 데이터 보존됨)")
     print(f"   SQLite DB: {db_dir / 'voxtrace.db'}")
-    print("\n생성된 테이블:")
+    print("\n확인된 테이블:")
     print("   기본 테이블:")
     print("   - projects")
     print("   - audio_files")
