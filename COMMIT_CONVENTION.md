@@ -6,10 +6,6 @@
 <type>(<scope>): <subject>
 
 <body>
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>
 ```
 
 ## Type (필수)
@@ -67,10 +63,6 @@ feat(asr): MLX Whisper medium 모델 통합
 - M4 Mac에서 최적화된 추론 속도
 - 한국어 CER 12.3% 달성
 - 메모리 사용량 2.1GB
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>
 ```
 
 ### 2. 버그 수정
@@ -79,10 +71,6 @@ fix(vad): Silero VAD 무음 구간 과도 제거 문제 해결
 
 임계값을 0.3에서 0.5로 조정하여 짧은 발화가
 잘리는 문제 수정
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>
 ```
 
 ### 3. UI 개선
@@ -91,10 +79,6 @@ style(frontend): 스펙트로그램 전체 너비로 표시
 
 작은 카드에서 분리하여 별도 섹션으로 배치
 시각적 분석 편의성 향상
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>
 ```
 
 ### 4. 문서 작성
@@ -104,10 +88,6 @@ docs: Phase 1 완료 보고서 추가
 - 구현된 기능 목록
 - 데이터베이스 스키마
 - API 엔드포인트 명세
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>
 ```
 
 ### 5. 리팩토링
@@ -116,10 +96,6 @@ refactor(api): 오디오 처리 파이프라인 재구성
 
 Enhancement → VAD → ASR 순서로 명확히 분리
 각 단계별 에러 핸들링 개선
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>
 ```
 
 ## Breaking Changes
@@ -132,10 +108,6 @@ feat(api)!: 전사 API 응답 형식 변경
 BREAKING CHANGE: TranscriptionResult 스키마에서
 segments 필드 구조 변경. 기존 클라이언트는
 API 버전 업데이트 필요.
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>
 ```
 
 ## 커밋 크기
