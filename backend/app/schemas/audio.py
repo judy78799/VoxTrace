@@ -30,7 +30,16 @@ class TranscriptionRequest(BaseModel):
     enable_vad: bool = True  # Voice Activity Detection (무음 제거)
     enable_diarization: bool = True
     enable_enhancement: bool = False
+    enable_auto_filter: bool = False  # 의심 세그먼트 자동 필터링
     language: str = "ko"
+
+
+class QualityFlag(BaseModel):
+    """Quality flag for segment analysis"""
+
+    type: str = Field(..., description="Flag type (e.g., 'repetition', 'low_confidence')")
+    severity: str = Field(..., description="Severity level ('warning' or 'error')")
+    reason: str = Field(..., description="Human-readable explanation")
 
 
 class TranscriptionSegment(BaseModel):
@@ -41,6 +50,11 @@ class TranscriptionSegment(BaseModel):
     text: str
     speaker: Optional[str] = None
     confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
+
+    # Post-processing quality flags
+    quality_flags: list["QualityFlag"] = Field(default_factory=list, description="Detected quality issues")
+    is_suspicious: bool = Field(False, description="Whether segment is flagged as suspicious")
+    is_filtered: bool = Field(False, description="Whether segment is filtered out")
 
 
 class VADAnalysis(BaseModel):

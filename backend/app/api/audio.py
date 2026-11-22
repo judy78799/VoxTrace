@@ -20,12 +20,14 @@ from app.schemas.audio import (
     TranscriptionRequest,
     TranscriptionResult,
     TranscriptionSegment,
+    QualityFlag,
     VADAnalysis,
     AudioQualityMetrics,
     SignalAnalysis,
     FrequencyAnalysis,
 )
 from app.utils.audio import extract_metadata_ffmpeg, validate_audio_file
+from app.utils.post_processing import filter_suspicious_segments
 from app.core.config import settings
 
 router = APIRouter()
@@ -156,10 +158,12 @@ async def upload_audio(
 from app.models.asr import ASRModel
 from app.models.vad import VADModel
 from app.models.audio_analysis import AudioAnalysisModel
+from app.models.enhancement import EnhancementModel
 
 asr_model = ASRModel(model_name="medium")
 vad_model = VADModel()
 audio_analysis_model = AudioAnalysisModel()
+enhancement_model = EnhancementModel()
 
 
 @router.post("/transcribe", response_model=TranscriptionResult)
@@ -217,26 +221,44 @@ async def transcribe_audio(
         print(f"⚠️  Signal analysis failed: {e}")
         # 분석 실패해도 전사는 계속 진행
 
-    # 3. VAD 전처리 (옵션)
-    audio_path_for_asr = audio_file.original_path
+    # 3. Speech Enhancement (옵션)
+    audio_path_for_processing = audio_file.original_path
+    enhancement_result = None
+
+    if request.enable_enhancement:
+        try:
+            print(f"🎵 Applying Speech Enhancement (noisereduce)...")
+            enhancement_result = await enhancement_model.enhance_audio(
+                audio_path=audio_file.original_path,
+                output_path=None,  # 자동 생성 (_enhanced suffix)
+            )
+            # Enhancement 처리된 파일 사용
+            audio_path_for_processing = enhancement_result.enhanced_path
+            print(f"✅ Enhancement complete: {enhancement_result.processing_time:.2f}s processing time")
+        except Exception as e:
+            print(f"⚠️  Enhancement failed, using original audio: {e}")
+            # Enhancement 실패 시 원본 사용
+
+    # 4. VAD 전처리 (옵션)
+    audio_path_for_asr = audio_path_for_processing
     vad_result = None
 
     if request.enable_vad:
         try:
             print(f"🎙️  Applying VAD preprocessing...")
             vad_result = await vad_model.process_audio(
-                audio_path=audio_file.original_path,
+                audio_path=audio_path_for_processing,  # Enhancement 적용된 오디오 사용
                 output_path=None,  # 자동 생성 (_vad suffix)
             )
             # VAD 처리된 파일 사용
-            audio_path_for_asr = str(Path(audio_file.original_path).parent /
-                                    f"{Path(audio_file.original_path).stem}_vad{Path(audio_file.original_path).suffix}")
+            audio_path_for_asr = str(Path(audio_path_for_processing).parent /
+                                    f"{Path(audio_path_for_processing).stem}_vad{Path(audio_path_for_processing).suffix}")
             print(f"✅ VAD complete: {vad_result.silence_removed:.2f}s silence removed")
         except Exception as e:
-            print(f"⚠️  VAD failed, using original audio: {e}")
-            # VAD 실패 시 원본 사용
+            print(f"⚠️  VAD failed, using previous audio: {e}")
+            # VAD 실패 시 이전 단계 오디오 사용
 
-    # 4. ASR 모델로 전사 수행
+    # 5. ASR 모델로 전사 수행
     try:
         asr_result = await asr_model.transcribe(
             audio_path=audio_path_for_asr,
@@ -283,16 +305,55 @@ async def transcribe_audio(
     await db.commit()
     await db.refresh(transcript)
 
-    # 4. 응답 반환
+    # 4. Post-processing: 품질 플래그 및 의심 세그먼트 필터링
+    print(f"\n🔍 Running post-processing quality analysis...")
+
+    # 세그먼트를 딕셔너리 형태로 변환
+    segments_dict = [
+        {
+            "start": seg.start,
+            "end": seg.end,
+            "text": seg.text,
+            "confidence": seg.confidence if seg.confidence is not None else 1.0,
+        }
+        for seg in asr_result.segments
+    ]
+
+    # 품질 분석 및 필터링
+    processed_segments = filter_suspicious_segments(
+        segments_dict,
+        auto_filter=request.enable_auto_filter
+    )
+
+    # 통계 출력
+    suspicious_count = sum(1 for seg in processed_segments if seg["is_suspicious"])
+    filtered_count = sum(1 for seg in processed_segments if seg["is_filtered"])
+    print(f"   Total segments: {len(processed_segments)}")
+    print(f"   Suspicious segments: {suspicious_count}")
+    if request.enable_auto_filter:
+        print(f"   Auto-filtered: {filtered_count}")
+    print(f"✅ Post-processing complete\n")
+
+    # 5. 응답 반환
     response_segments = [
         TranscriptionSegment(
-            start=seg.start,
-            end=seg.end,
-            text=seg.text,
+            start=seg["start"],
+            end=seg["end"],
+            text=seg["text"],
             speaker=None,
-            confidence=seg.confidence,
+            confidence=seg["confidence"],
+            quality_flags=[
+                QualityFlag(
+                    type=flag["type"],
+                    severity=flag["severity"],
+                    reason=flag["reason"]
+                )
+                for flag in seg["quality_flags"]
+            ],
+            is_suspicious=seg["is_suspicious"],
+            is_filtered=seg["is_filtered"],
         )
-        for seg in asr_result.segments
+        for seg in processed_segments
     ]
 
     # VAD 분석 정보

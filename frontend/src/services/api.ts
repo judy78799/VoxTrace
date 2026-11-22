@@ -37,6 +37,7 @@ export const api = {
       enable_vad?: boolean
       enable_diarization?: boolean
       enable_enhancement?: boolean
+      enable_auto_filter?: boolean
       language?: string
     } = {}
   ): Promise<TranscriptionResult> {
@@ -48,6 +49,7 @@ export const api = {
         enable_vad: options.enable_vad ?? true,
         enable_diarization: options.enable_diarization ?? true,
         enable_enhancement: options.enable_enhancement ?? false,
+        enable_auto_filter: options.enable_auto_filter ?? false,
         language: options.language ?? 'ko',
       }),
     })

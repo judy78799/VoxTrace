@@ -23,20 +23,49 @@ export function AudioUpload({ onUploadComplete, onTranscriptionComplete }: Audio
   // Transcription state
   const [transcribing, setTranscribing] = useState(false)
   const [transcription, setTranscription] = useState<TranscriptionResult | null>(null)
+  const [transcriptionProgress, setTranscriptionProgress] = useState(0)
+
+  // Options
+  const [enableEnhancement, setEnableEnhancement] = useState(false)
+  const [enableVad, setEnableVad] = useState(true)
+  const [enableAutoFilter, setEnableAutoFilter] = useState(false)
+
+  // Filtering UI state
+  const [showFilteredSegments, setShowFilteredSegments] = useState(false)
 
   const handleTranscribe = async () => {
     if (!result?.file_id) return
 
     setTranscribing(true)
+    setTranscriptionProgress(0)
     setError(null)
+
+    // Simulate progress based on audio duration
+    const audioDuration = result.duration || 60 // seconds
+    const estimatedProcessingTime = audioDuration * 0.5 // Estimate: 0.5x realtime
+    const progressInterval = setInterval(() => {
+      setTranscriptionProgress(prev => {
+        // Slow down as we approach 90%
+        if (prev >= 90) return prev + 0.5
+        if (prev >= 70) return prev + 1
+        return prev + 2
+      })
+    }, (estimatedProcessingTime * 1000) / 50) // Update 50 times during estimated duration
 
     try {
       const transcriptionResult = await api.transcribeAudio(result.file_id, {
         language: 'ko',
-        enable_vad: true,  // VAD enabled by default
+        enable_vad: enableVad,
         enable_diarization: false,
-        enable_enhancement: false,
+        enable_enhancement: enableEnhancement,
+        enable_auto_filter: enableAutoFilter,
       })
+
+      clearInterval(progressInterval)
+      setTranscriptionProgress(100)
+
+      // Small delay to show 100% before showing results
+      await new Promise(resolve => setTimeout(resolve, 300))
 
       setTranscription(transcriptionResult)
 
@@ -44,6 +73,7 @@ export function AudioUpload({ onUploadComplete, onTranscriptionComplete }: Audio
         onTranscriptionComplete(transcriptionResult)
       }
     } catch (err) {
+      clearInterval(progressInterval)
       setError(err instanceof Error ? err.message : '전사 실패')
     } finally {
       setTranscribing(false)
@@ -225,6 +255,34 @@ export function AudioUpload({ onUploadComplete, onTranscriptionComplete }: Audio
             </div>
           </div>
 
+          {/* Transcription Options */}
+          <div className="transcription-options" style={{ margin: '1rem 0', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={enableEnhancement}
+                onChange={(e) => setEnableEnhancement(e.target.checked)}
+              />
+              <span>🎵 Noise Reduction - 배경 소음 제거 (복도 녹음에 효과적)</span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={enableVad}
+                onChange={(e) => setEnableVad(e.target.checked)}
+              />
+              <span>🎙️ VAD (Voice Activity Detection) - 무음 구간 제거</span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={enableAutoFilter}
+                onChange={(e) => setEnableAutoFilter(e.target.checked)}
+              />
+              <span>🔍 자동 필터링 - 의심 세그먼트 자동 숨기기 (반복 패턴 등)</span>
+            </label>
+          </div>
+
           <button
             className="transcribe-btn"
             onClick={handleTranscribe}
@@ -252,6 +310,23 @@ export function AudioUpload({ onUploadComplete, onTranscriptionComplete }: Audio
         <div className="transcription-progress">
           <div className="progress-spinner"></div>
           <p>음성을 텍스트로 변환 중입니다...</p>
+
+          {/* Progress bar with percentage */}
+          <div className="progress-bar" style={{ marginTop: '1rem' }}>
+            <div
+              className="progress-fill"
+              style={{ width: `${Math.min(transcriptionProgress, 100)}%` }}
+            ></div>
+          </div>
+          <p style={{
+            marginTop: '0.5rem',
+            fontSize: '1.2rem',
+            fontWeight: 'bold',
+            color: '#3b82f6'
+          }}>
+            {Math.floor(transcriptionProgress)}%
+          </p>
+
           <p className="progress-hint">첫 실행 시 모델 다운로드로 인해 시간이 걸릴 수 있습니다.</p>
         </div>
       )}
@@ -354,6 +429,65 @@ export function AudioUpload({ onUploadComplete, onTranscriptionComplete }: Audio
                 </div>
               )}
 
+              {/* Signal Analysis */}
+              {transcription.signal_analysis && (
+                <div className="analysis-card">
+                  <div className="card-header">🔬 신호 분석</div>
+                  <div className="card-content">
+                    <div className="metric-row">
+                      <span className="metric-label">품질 점수:</span>
+                      <span className={`metric-value ${transcription.signal_analysis.quality_score >= 70 ? 'highlight' : ''}`}>
+                        {transcription.signal_analysis.quality_score.toFixed(1)}/100
+                      </span>
+                    </div>
+                    {transcription.signal_analysis.snr_db !== null && transcription.signal_analysis.snr_db !== undefined && (
+                      <div className="metric-row">
+                        <span className="metric-label">SNR (신호 대 노이즈):</span>
+                        <span className="metric-value">{transcription.signal_analysis.snr_db.toFixed(1)} dB</span>
+                      </div>
+                    )}
+                    {transcription.signal_analysis.clipping_detected && (
+                      <div className="metric-row">
+                        <span className="metric-label">⚠️ 클리핑:</span>
+                        <span className="metric-value">{transcription.signal_analysis.clipping_percentage.toFixed(2)}%</span>
+                      </div>
+                    )}
+                    {transcription.signal_analysis.quality_issues.length > 0 && (
+                      <>
+                        <div className="metric-row">
+                          <span className="metric-label">품질 문제:</span>
+                          <span className="metric-value">{transcription.signal_analysis.quality_issues.length}개</span>
+                        </div>
+                        <div className="quality-issues-list">
+                          {transcription.signal_analysis.quality_issues.map((issue, idx) => (
+                            <div key={idx} className="quality-issue">⚠️ {issue}</div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+
+                    {/* Frequency Analysis */}
+                    {transcription.signal_analysis.frequency_analysis && (
+                      <div className="frequency-analysis" style={{ marginTop: '1rem' }}>
+                        <div className="metric-label" style={{ marginBottom: '0.5rem' }}>🎵 주파수 분석</div>
+                        <div className="metric-row">
+                          <span className="metric-label">저주파 (0-300Hz):</span>
+                          <span className="metric-value">{(transcription.signal_analysis.frequency_analysis.low_freq_energy * 100).toFixed(1)}%</span>
+                        </div>
+                        <div className="metric-row">
+                          <span className="metric-label">중간주파 (300-3000Hz):</span>
+                          <span className="metric-value">{(transcription.signal_analysis.frequency_analysis.mid_freq_energy * 100).toFixed(1)}%</span>
+                        </div>
+                        <div className="metric-row">
+                          <span className="metric-label">고주파 (3000Hz+):</span>
+                          <span className="metric-value">{(transcription.signal_analysis.frequency_analysis.high_freq_energy * 100).toFixed(1)}%</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Confidence Statistics */}
               <div className="analysis-card">
                 <div className="card-header">📈 신뢰도 통계</div>
@@ -395,24 +529,116 @@ export function AudioUpload({ onUploadComplete, onTranscriptionComplete }: Audio
                 </div>
               </div>
             </div>
+
+            {/* Spectrogram Visualization - Full Width */}
+            {transcription.signal_analysis?.spectrogram_base64 && (
+              <div style={{ marginTop: '2rem' }}>
+                <h3 style={{ marginBottom: '1rem' }}>📊 스펙트로그램 (Mel Spectrogram)</h3>
+                <div style={{
+                  width: '100%',
+                  backgroundColor: '#fff',
+                  borderRadius: '12px',
+                  padding: '1.5rem',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                  border: '1px solid #e0e0e0'
+                }}>
+                  <img
+                    src={`data:image/png;base64,${transcription.signal_analysis.spectrogram_base64}`}
+                    alt="Audio Spectrogram"
+                    style={{
+                      width: '100%',
+                      height: 'auto',
+                      display: 'block',
+                      borderRadius: '8px',
+                    }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Transcription Segments */}
           <div className="segments-container">
-            <h3>📝 전사 결과</h3>
-            {transcription.segments.map((segment, idx) => (
-              <div key={idx} className="segment">
-                <div className="segment-time">
-                  {formatDuration(segment.start)} - {formatDuration(segment.end)}
-                </div>
-                <div className="segment-text">{segment.text}</div>
-                {segment.confidence !== null && segment.confidence !== undefined && (
-                  <div className="segment-confidence">
-                    신뢰도: {(segment.confidence * 100).toFixed(1)}%
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3>📝 전사 결과</h3>
+              {(() => {
+                const suspiciousCount = transcription.segments.filter(s => s.is_suspicious).length
+                const filteredCount = transcription.segments.filter(s => s.is_filtered).length
+
+                return suspiciousCount > 0 && (
+                  <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', fontSize: '0.9rem' }}>
+                    <span style={{ color: '#ff9800' }}>
+                      ⚠️ 의심 세그먼트: {suspiciousCount}개
+                    </span>
+                    {filteredCount > 0 && (
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={showFilteredSegments}
+                          onChange={(e) => setShowFilteredSegments(e.target.checked)}
+                        />
+                        <span>숨겨진 세그먼트 표시 ({filteredCount}개)</span>
+                      </label>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
+                )
+              })()}
+            </div>
+
+            {transcription.segments
+              .filter(segment => !segment.is_filtered || showFilteredSegments)
+              .map((segment, idx) => {
+                // Determine segment styling based on flags
+                const hasErrorFlag = segment.quality_flags?.some(f => f.severity === 'error')
+                const hasWarningFlag = segment.quality_flags?.some(f => f.severity === 'warning')
+
+                const segmentClassName = segment.is_filtered
+                  ? 'segment segment-filtered'
+                  : segment.is_suspicious
+                  ? 'segment segment-suspicious'
+                  : hasErrorFlag
+                  ? 'segment segment-error'
+                  : hasWarningFlag
+                  ? 'segment segment-warning'
+                  : 'segment'
+
+                return (
+                  <div key={idx} className={segmentClassName}>
+                    <div className="segment-time">
+                      {formatDuration(segment.start)} - {formatDuration(segment.end)}
+                      {segment.is_suspicious && (
+                        <span style={{ marginLeft: '0.5rem', color: '#ff5722', fontWeight: 'bold' }}>
+                          ⚠️ 의심
+                        </span>
+                      )}
+                      {segment.is_filtered && (
+                        <span style={{ marginLeft: '0.5rem', color: '#999', fontStyle: 'italic' }}>
+                          (숨김)
+                        </span>
+                      )}
+                    </div>
+                    <div className="segment-text">{segment.text}</div>
+                    {segment.confidence !== null && segment.confidence !== undefined && (
+                      <div className="segment-confidence">
+                        신뢰도: {(segment.confidence * 100).toFixed(1)}%
+                      </div>
+                    )}
+                    {segment.quality_flags && segment.quality_flags.length > 0 && (
+                      <div className="quality-flags">
+                        {segment.quality_flags.map((flag, flagIdx) => (
+                          <div
+                            key={flagIdx}
+                            className={`quality-flag quality-flag-${flag.severity}`}
+                            title={flag.reason}
+                          >
+                            {flag.severity === 'error' ? '🔴' : '⚠️'} {flag.reason}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
           </div>
         </div>
       )}
