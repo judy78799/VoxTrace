@@ -25,7 +25,14 @@ dist/
 
 # Data & Models (privacy & size)
 data/
-models/
+# AI model files (not Python code)
+models/*.pt
+models/*.pth
+models/*.onnx
+models/*.bin
+models/*.pb
+models/*.h5
+models/*.safetensors
 *.db
 *.sqlite
 *.sqlite3
